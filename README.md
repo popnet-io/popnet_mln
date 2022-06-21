@@ -25,7 +25,7 @@ and that parents live with their children (generations 2 and 3)
 11. We draw random coordinates for a predefined number of schools (`number_of_chools`) in the previous square, we assign children (generation 3) to the closest school.
 12. We draw random coordinates for a predefined number of workplaces in the previous square (`number_of_workplaces`) and we assign parents (generation 2) to the closest workplace.
 
-A sample config looks like the following:
+A sample config looks like the following, dictionary keys correspond to the generations:
 ```
 config = {
     "size_first_gen" : 50,
