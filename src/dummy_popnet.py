@@ -11,6 +11,12 @@ from networkx.drawing.nx_pydot import graphviz_layout
 import matplotlib.pyplot as plt
 
 class DummyNetwork:
+    """
+    This class generates a dummy POPNET network built over a simulated kinship structure.
+    The configuration dictionary sets the parameters of the simulation.
+    The resulting nodelist and edgelist can be exported with `self.export_network()` into
+    a node and edge pandas DataFrame.
+    """
     def __init__(self, **config):
         # how many people to start the simulation from
         self.size_first_gen = config["size_first_gen"]
