@@ -29,16 +29,15 @@ class MultiLayeredNetwork:
         self, 
         adjacency_file = "",
         node_attribute_file = "",
+        layer_file = "",
         adjacency_matrix =  None,
         node_attribute_dataframe = None,
         from_library = "",
-        library_path = "/data/projecten/popnet/library",
-        linktypes_file = '/data/projecten/popnet/meta/linktypes_en_full.csv',
-        layer_binary_repr_file = '/data/projecten/popnet/meta/layer_binary_codes.json',
-        colors_file = '/data/projecten/popnet/meta/layer_colors.json',
-        attribute_colnames = '/data/projecten/popnet/meta/attribute_colnames.json',
-        attribute_code_table = '/data/projecten/popnet/meta/attribute_code_table.json',
-        verbose=False
+        library_path = "",
+        colors_file = "",
+        attribute_colnames = "",
+        attribute_code_table = "",
+        verbose=True
     ):
         """
         This class contains methods and attributes to work with a large
@@ -156,22 +155,19 @@ class MultiLayeredNetwork:
                     pandas.DataFrame containing exactly N rows corresponding to
                     the matrix rowsm containing 'label' column other columns
                     having attributes of graph data
+                layer_file : str, default None
+                    path of csv file containing layers, should contain column called "layer"
                 from_library : str, default ""
                     short name to get network read from `library_path`
                     subdirectory
-                library_path : str, default "/data/projecten/popnet/library"
+                library_path : str, default ""
                     path where library entries are stored
-                linktypes_file : str, default '/data/projecten/popnet/meta/linktypes_en_full.csv'
-                    csv file mapping linktype binary codes and integer codes to
-                    layers and string labels
-                layer_binary_repr_file : str, default '/data/projecten/popnet/meta/layer_binary_codes.json'
-                    JSON mapping layer names to binary equivalents
                 colors_file : str, default
                 '/data/projecten/popnet/meta/layer_colors.json'
                     JSON defining layer colors for visualization
-                attribute_colnames : str, default '/data/projecten/popnet/meta/attribute_colnames.json'
+                attribute_colnames : str, default ""
                     JSON containing translations for column names
-                attribute_code_table : str, default '/data/projecten/popnet/meta/attribute_code_table.json'
+                attribute_code_table : str, default ""
                     JSON containing translation of possible attribute values for
                     all columns
                 verbose : bool, default False
@@ -191,8 +187,8 @@ class MultiLayeredNetwork:
                     0...N-1 integer NID (int) -> label (int or str) mapping
                 N : int
                     number of nodes
-                linktypes : pd.DataFrame
-                    table containing info on linktypes in the networks
+                layers : pd.DataFrame
+                    table containing info on layers/linktypes in the networks
                 linktypes_dict : dict
                     dictionary containing dictionaries for efficient conversion from 
                     binary -> code, binary -> label
@@ -246,8 +242,12 @@ class MultiLayeredNetwork:
         self.verboseprint("Reading node attribute files...")
         self.init_node_attributes(node_attribute_file, node_attribute_dataframe)
         self.verboseprint("Done.")
+        self.verboseprint("Initializing metadata...")
         self.init_meta_data()
-        self.init_linktypes(linktypes_file)
+        self.verboseprint("Done.")
+        self.verboseprint("Creating linktypes...")
+        self.init_linktypes(layer_file)
+        self.verboseprint("Done.")
         
         self.verboseprint("Loading adjacency matrix...")
         if self.init_sparse_matrix(adjacency_file, adjacency_matrix) == -1:
@@ -256,17 +256,17 @@ class MultiLayeredNetwork:
             return None
         self.verboseprint("Done.")
         
-        self.init_layer_binary_repr(layer_binary_repr_file)
-        self.init_colors(colors_file)
-        self.init_attribute_colnames(attribute_colnames)
-        self.init_attribute_code_table(attribute_code_table)
+        self.verboseprint("Initializing colors and attributes...")
+        # self.init_colors(colors_file)
+        # self.init_attribute_colnames(attribute_colnames)
+        # self.init_attribute_code_table(attribute_code_table)
         self.igraph = None
+        self.verboseprint("Done.")
  
         # pathnames to give to children instances at inheritance, shortens following inits
         self._to_pass = {
             "library_path" : library_path,
-            "linktypes_file" : linktypes_file,
-            "layer_binary_repr_file" : layer_binary_repr_file,
+            "layer_file" : layer_file,
             "colors_file" : colors_file,
             "attribute_colnames" : attribute_colnames,
             "attribute_code_table" : attribute_code_table,
@@ -406,15 +406,16 @@ class MultiLayeredNetwork:
         """       
         # get edgelists and columns corresponding to source, target and linktype
         # assumed layout: source, target, linktypes
+        # self.verboseprint("Getting sparse matrix from csv...")
         if csv_file.endswith("gz"):
-            edgelist = pd.read_csv(csv_file, skiprows=[0], header = None, compression = "gzip").drop_duplicates()
+            edgelist = pd.read_csv(csv_file, header = 0, compression = "gzip").drop_duplicates()
         else:
-            edgelist = pd.read_csv(csv_file, skiprows=[0], header = None).drop_duplicates()
+            edgelist = pd.read_csv(csv_file, header = 0).drop_duplicates()
         try:
-            source_list = edgelist[0]
-            target_list = edgelist[1]  
+            source_list = edgelist["source"]
+            target_list = edgelist["target"]  
             if edgelist.shape[1]>=3:
-                linktypes = list(edgelist[2])
+                linktypes = list(edgelist["linktype"])
             else:
                 linktypes = []
         except:
@@ -425,26 +426,27 @@ class MultiLayeredNetwork:
         all_nodes = source_list.append(target_list).unique()
 
         # Initialize linktype
-        if self.linktypes is None:
+        if self.layers is None:
+            # self.verboseprint("Making self.layers...")
             # Get largest binary linktype value
             nr_links = len(np.unique(linktypes))
             self.max_bin_linktype = nr_links ** 2
             
             # Generate based on binary linktypes in A
-            columns = ["code", "label", "binary_linktype"]
+            columns = ["layer", "name", "binary"]
             labels = pd.unique(linktypes)
             binary_linktypes = [2**i for i in range(nr_links)]
             data = np.array([labels] + [labels] + [binary_linktypes]).T
             
             # Initialize linktypes
-            self.linktypes = pd.DataFrame(data, columns=columns)
-            self.linktypes.set_index("binary_linktype", inplace=True)
+            self.layers = pd.DataFrame(data, columns=columns)
+            # self.verboseprint(self.layers)
             self.init_linktypes_dict()
             
         if len(linktypes) == 0:
             binary_linktypes = [1 for i in range(len(source_list))]
         else:
-            binary_linktypes = self.convert_linktype(linktypes, input_type="code", output_type="bin")
+            binary_linktypes = self.convert_linktype(linktypes, input_type="layer", output_type="binary")
         
         # initialise metadata if not initialised (no attribute data)
         # ids in edgelist are labels, mapped to nodeids
@@ -494,6 +496,7 @@ class MultiLayeredNetwork:
             if adjacency_matrix is None and adjacency_file.endswith(".npz"):
                 self.A = load_npz(adjacency_file)
             elif adjacency_matrix is None and adjacency_file.endswith(".csv.gz") or adjacency_file.endswith(".csv") :
+                # self.verboseprint("Trying to get from csv.gz or csv.")
                 self.A = self.get_sparsematrix_from_csv(adjacency_file)
         except:
             print(f"Error: Adjacency_file {adjacency_file} could not be loaded succesfully")
@@ -513,54 +516,56 @@ class MultiLayeredNetwork:
  
     def init_linktypes(self, linktypes_file):
         """
-        Initialize self.linktypes and self.linktypes_dict. linktypes_file should
-        be .json. If no (valid) file is given, self.linktypes is initialized
+        Initialize self.layers and self.layers_dict. linktypes_file should
+        be .json. If no (valid) file is given, self.layers is initialized
         based on the largest binary link in self.A
         
         Parameters:
             -------------
             linktypes_file : string
-                string containing the (path to) linktypes_file. Type: .json
+                string containing the (path to) linktypes_file. Type: .csv
         Returns:
             -------------
             None
         """
         try:
-            self.linktypes = pd.read_csv(linktypes_file)
+            self.verboseprint(f"Reading linktypes file {linktypes_file}...")
+            self.layers = pd.read_csv(linktypes_file)
             # Check columns
-            if not ("label" in self.linktypes.columns or "code" in self.linktypes.columns):
-                print("Error: linktypes should at least have column \"label\" or \"code\"")
+            if not ("name" in self.layers.columns or "layer" in self.layers.columns):
+                print("Error: linktypes should at least have column \"name\" or \"layer\"")
             
             # Add new columns if not included
-            if "label" in self.linktypes and not "code" in self.linktypes:
-                self.linktypes["label"] = self.linktypes["code"]
-            elif "code" in self.linktypes and not "label" in self.linktypes:
-                self.linktypes["code"] = self.linktypes["label"]
-            if not "binary_linktype" in self.linktypes:
-                self.linktypes["binary_linktype"] = [2**i for i in range(len(self.linktypes))]
+            if "name" in self.layers and not "layer" in self.layers:
+                self.layers["name"] = self.layers["layer"]
+            elif "layer" in self.layers and not "name" in self.layers:
+                self.layers["layer"] = self.layers["name"]
+            if not "binary" in self.layers:
+                self.layers["binary"] = [2**i for i in range(len(self.layers))]
             
-            max_bin_link = self.linktypes["binary_linktype"].max()
+            max_bin_link = self.layers["binary"].max()
             self.max_bin_linktype = int(np.floor(np.log2(max_bin_link)))
-            self.linktypes.set_index("binary_linktype", inplace=True)
+            self.layers.set_index("binary", inplace=True)
             self.init_linktypes_dict()
         except:
             if linktypes_file != "":
-                print(f"Error: linktypes_file {linktypes_file} is not valid.")
+                print(f"Warning: linktypes_file {linktypes_file} is not valid.")
                 print("Obtaining linktypes from adjacency matrix.")
-            self.linktypes = None
+            self.verboseprint("self.layers still None")
+            self.layers = None
     
     def init_linktypes_dict(self):
         """
         Initialize dictionary for efficient conversion from link, label, code and 
-        binary label to each other. Resulting dictionary is stored in self.linktypes_dict
+        binary label to each other. Resulting dictionary is stored in self.layers_dict
         
         Returns:
             -------------
             None
         """
-        binary = self.linktypes.index.tolist()
-        codes = self.linktypes['code'].tolist()
-        labels = self.linktypes['label'].tolist()
+        binary = self.layers["binary"].tolist()
+        codes = self.layers["layer"].tolist()
+        labels = self.layers["name"].tolist()
         
         bin_to_code = dict(zip(binary, codes))
         bin_to_label = dict(zip(binary, labels))
@@ -569,38 +574,14 @@ class MultiLayeredNetwork:
         label_to_bin = dict(zip(labels, binary))
         label_to_code = dict(zip(labels, codes))
         
-        self.linktypes_dict = {
-            'bin_to_code' : bin_to_code,
-            'bin_to_label' : bin_to_label,
-            'code_to_label' : code_to_label,
-            'code_to_bin' : code_to_bin,
-            'label_to_bin' : label_to_bin,
-            'label_to_code' : label_to_code
+        self.layers_dict = {
+            'binary_to_layer' : bin_to_code,
+            'binary_to_name' : bin_to_label,
+            'layer_to_name' : code_to_label,
+            'layer_to_binary' : code_to_bin,
+            'name_to_binary' : label_to_bin,
+            'name_to_layer' : label_to_code
         }
-    
-    def init_layer_binary_repr(self, layer_binary_repr_file):
-        """
-        Initialize self.layer_binary_repr layer_binary_repr_file should be
-        .json. If no (valid) file is given, self.layer_binary_repr = {all : 1}
-        
-        Parameters:
-            -------------
-            layer_binary_repr_file : string
-                string containing the (path to) layer_binary_repr_file. Type: .json
-        
-        Returns:
-            -------------
-            None
-        """
-        # TODO: the current setup seems to be very strange
-        # layer -> integer representations: summing up all binary numbers corresponding to a certain layer
-        try:
-            f = open(layer_binary_repr_file)
-            self.layer_binary_repr = json.load(f)
-        except:
-            if layer_binary_repr_file != "":
-                print(f"layer_binary_repr_file {layer_binary_repr_file} could not be opened")
-            self.layer_binary_repr["all"] = 1
     
     def init_colors(self, colors_file):
         """
@@ -622,12 +603,12 @@ class MultiLayeredNetwork:
                 print(f"Error: colors_file {colors_file} could not be opened")
             
             # No layers, initialize default color
-            if "layer" not in self.linktypes.columns:
+            if "layer" not in self.layers.columns:
                 self.colors = {"all" : "#000000"}
                 return
             
             # Generate color for each layer, if more than 10 colors use Spectarl scheme
-            layers = np.unique(self.linktypes["layer"])
+            layers = np.unique(self.layers["layer"])
             if len(layers) <= 10:
                 colors = matplotlib.cm.tab10(np.linspace(0, 1, len(layers)))
             else:
@@ -683,40 +664,24 @@ class MultiLayeredNetwork:
                 print(f"attribute_code_table file {attribute_code_table} could not be opened")
             self.attribute_code_table = None
     
-    def get_filtered_network(self, layer_codes = [] , full_layers = [], selected_nodes = None, use_label=True):
+    def get_filtered_network(self, layers = [], selected_nodes = None, use_label=True):
         """
         Returns MultiLayeredNetwork based on edge and node filtering.
         
         Possibilities:
  
-        1. Edge filtering 1: defining a list of full layers through the kwarg
-           `full_layers`. List of full layers:
-                - family
-                - household
-                - neighbors
-                - school
-                - work
-            E.g. to get the full family and household layers:
-            `mln.get_edgelist(full_layers = ["family", "household"])`
+        1. Edge filtering: defining a list of layers through the kwarg `layers`.
+           E.g. `mln.get_edgelist(full_layers = ["family", "household"])`
  
-        2. Edge filtering 2: defining layer codes listed in the `mln.linktypes`
-           DataFrame though the kwarg `layer_codes`. E.g.
-            `mln.get_edgelist(layer_codes = [104,108])`
- 
-        3. Edge filtering 1+2: mixing the two definitions. 
-            E.g.
-            `mln.get_edgelist(full_layers = ["family"], layer_codes = [501])`
- 
-        3. Node filtering: given a list of labels, select subgraph spanned by
+        2. Node filtering: given a list of labels, select subgraph spanned by
            those nodes, consisting only of selected edgetypes.
  
         Parameters:
             -------------
-            layer_codes : list of int, default []
+            layers : list of int or str, default []
                 list of layer codes to include in returned object
-                see list of possible layer codes in self.linktypes
-            full_layers : list of str, default []
-                list of full layers to include in returned object
+                see list of possible layer codes in self.layers
+
             selected_nodes : list of int, default None
                 if None, return all nodes in the parent object
                 if list, select nodes and their spanned subgraph with given
@@ -760,20 +725,10 @@ class MultiLayeredNetwork:
             selection_A = deepcopy(self.A)
             selection_node_attributes = self.node_attributes
  
-        binary_repr = 0
-        print(full_layers)
-        if len(full_layers)>0:
+        if len(layers)>0:
             # adding up the binary codes for the full layers from the argument
-            binary_repr += sum([self.layer_binary_repr[l] for l in np.unique(full_layers)])
-        if len(layer_codes)>0:
-            binary_codes = self.convert_linktype(layer_codes)
-            for b in binary_codes:
-                # if the code was not already present in the full layers before
-                if (binary_repr & b) == 0:
-                    binary_repr += b
- 
-        # if there was any edge selection, then filter edges
-        if len(layer_codes) > 0  or len(full_layers) > 0:
+            binary_repr = self.layers.set_index("layer")["binary"].sum()
+            # select corresponding edges
             selection_A.data = selection_A.data & binary_repr
             # compress sparse matrix
             selection_A.eliminate_zeros()
@@ -820,7 +775,7 @@ class MultiLayeredNetwork:
         If one does not need the linktypes, then the resulting columns are:
         "source", "target"
 
-        Otherwise, the columns are: "source", "target", "binary_linktype",
+        Otherwise, the columns are: "source", "target", "binary",
         "linktype"
  
         Returns
@@ -846,7 +801,7 @@ class MultiLayeredNetwork:
     
             # add colnames and (human) readable link types
             # if an edge has multiple linktypes, it is listed multiple times with the linktype code
-            edgelist.columns = ["source", "target", "binary_linktype"]
+            edgelist.columns = ["source", "target", "binary"]
             
             # convert all unique binary linktypes to their labels
             link_dict = {}
@@ -857,15 +812,15 @@ class MultiLayeredNetwork:
 
 
             # get pairs (binary_linktype, label) of each link
-            edgelist["binary_linktype"] = edgelist["binary_linktype"].map(link_dict)
+            edgelist["binary"] = edgelist["binary"].map(link_dict)
             # self.report_time(message = "Mapped binary link identifiers.")
             # print(edgelist.head())
 
             # explode values and divide pairs over binary_linktype and linktype column
-            edgelist = edgelist.explode("binary_linktype")
+            edgelist = edgelist.explode("binary")
             # self.report_time(message = "Exploded binary link identifiers.")
             # print(edgelist.head())
-            edgelist["binary_linktype"], edgelist["linktype"] = edgelist["binary_linktype"].str
+            edgelist["binary"], edgelist["linktype"] = edgelist["binary"].str
             # self.report_time(message = "Adding that to dataframe?")
             # print(edgelist.head())
         
@@ -999,33 +954,33 @@ class MultiLayeredNetwork:
  
         return g
     
-    def convert_linktype(self, linktypes, input_type='code', output_type='bin'):
+    def convert_linktype(self, linktypes, input_type="layer", output_type="binary"):
         """
         This function converts a single linktype or list of linktypes to
         their corresponding linklabels. Input can be binary, code or label.
-        All possible values for each are in self.linktypes
+        All possible values for each are in self.layers
  
         Parameters:
             -----------
             linktypes : int, string or list, no default
-                A single binary code or label of a linktype
+                A single binary code or name of a linktype
             input_type : string
-                Type of input. Options: "label", "code" and "bin"
+                Type of input. Options: "name", "layer" and "binary"
             output_type : string
-                Type of input. Options: "label", "code" and "bin"
+                Type of input. Options: "name", "layer" and "binary"
 
         Returns:
             -----------
             links : string or list
-                linktype (binary, code or label) corresponding to the given types
+                linktype (binary, layer or name) corresponding to the given types
                 If one of the linktypes is not found, returns None
          """
         
         dict_name = input_type + '_to_' + output_type
         try:
-            d = self.linktypes_dict[dict_name]
+            d = self.layers_dict[dict_name]
         except KeyError:
-            print('Error: dictionary value not found. Please choose from "label", "code", "bin"')
+            print('Error: dictionary value not found. Please choose from "name", "layer", "binary"')
             return None
         
         try:
@@ -1052,7 +1007,7 @@ class MultiLayeredNetwork:
             list(str)
                 list of string linktypes corresponding to integer value
         """
-        return [self.convert_linktype(2**i, input_type='bin', output_type='label') for i in range(self.max_bin_linktype) if num&(2**i)>0]
+        return [self.convert_linktype(2**i, input_type='binary', output_type='name') for i in range(self.max_bin_linktype) if num&(2**i)>0]
     
     def decompose_binary_linktype_2(self,num):
         """
@@ -1069,7 +1024,7 @@ class MultiLayeredNetwork:
             list(str)
                 list of string linktypes corresponding to integer value
         """
-        return [(i, self.convert_linktype(2**i, input_type='bin', output_type='label')) for i in range(self.max_bin_linktype) if num&(2**i)>0]
+        return [(i, self.convert_linktype(2**i, input_type='binary', output_type='name')) for i in range(self.max_bin_linktype) if num&(2**i)>0]
     
     def export_graph(self, file_name):
         """
@@ -1357,7 +1312,7 @@ class MultiLayeredNetwork:
         Calculate degree for selected nodes with selected layers.
         """
         if selected_layers is None:
-            selected_layers = list(self.layer_binary_repr.keys())
+            selected_layers = list(self.layers["layer"])
         if selected_nodes is None:
             selected_nodes = self.node_attributes["label"].tolist()
         
@@ -1392,7 +1347,7 @@ class MultiLayeredNetwork:
             
         """
         if selected_layers is None:
-            selected_layers = list(self.layer_binary_repr.keys())
+            selected_layers = list(self.layers["layer"])
         if selected_nodes is None:
             selected_nodes = self.node_attributes["label"].tolist()
         
@@ -1467,13 +1422,13 @@ class MultiLayeredNetwork:
                 self.layer_adj[layer] = lA
         elif type(layer)==int:
             lA = self.get_filtered_network(layer_codes=[layer]).downcast_to_binary()
-            if store and storage_name!="" and storage_name not in self.layer_binary_repr:
+            if store and storage_name!="" and storage_name not in self.layers["layer"]:
                 self.layer_adj[storage_name] = lA
             else:
                 print("Please give a correct storage name that is nonempty and not one of the layer names!")
         elif type(layer)==list:
             lA = self.get_filtered_network(layer_codes=layer).downcast_to_binary()
-            if store and storage_name!="" and storage_name not in self.layer_binary_repr:
+            if store and storage_name!="" and storage_name not in self.layers["layer"]:
                 self.layer_adj[storage_name] = lA
             else:
                 print("Please give a correct storage name that is nonempty and not one of the layer names!")
@@ -1491,7 +1446,7 @@ class MultiLayeredNetwork:
         self.sA = kron(np.ones((self.L,self.L)),eye(self.N)) - eye(self.L * self.N)
         # diagonal matrices
         d = []
-        for l in self.layer_binary_repr:
+        for l in self.layers["layer"]:
             if l not in self.layer_adj:
                 _ = self.get_single_layer_adj_matrix(layer=l,store=True)
             d.append(self.layer_adj[l])
