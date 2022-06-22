@@ -1,12 +1,16 @@
 # importing libraries
 import pandas as pd
 from pandas.io.parsers import read_csv
+import matplotlib
+from matplotlib import cm
 import numpy as np
 import igraph as ig
 import networkx as nx
- 
-from scipy.sparse import csr_matrix, save_npz, load_npz
+
+from scipy.sparse import csr_matrix, save_npz, load_npz, eye, block_diag, kron
 import json
+
+from scipy.special import comb
  
 from copy import deepcopy
 import os
@@ -14,9 +18,11 @@ import os
 from datetime import datetime
  
 # define constants
+# how many nodes should one export in a networkx object
 nx_node_limit = 10000
+# how deep the BFS should go when getting the egonetworks
 ego_depth_limit = 3
- 
+    
 class MultiLayeredNetwork:
     
     def __init__(
@@ -32,58 +38,75 @@ class MultiLayeredNetwork:
         colors_file = '/data/projecten/popnet/meta/layer_colors.json',
         attribute_colnames = '/data/projecten/popnet/meta/attribute_colnames.json',
         attribute_code_table = '/data/projecten/popnet/meta/attribute_code_table.json',
-        verbose=True
+        verbose=False
     ):
         """
-        This class contains methods and attributes to work with the population-level
-        social network (or its parts) of the Netherlands using different edge types and layers efficiently.
+        This class contains methods and attributes to work with a large
+        multilayer network using different edge types and layers efficiently.
  
-        The network is either loaded from an already saved sparse matrix and a node attribute CSV using the
-        following attributes:
+        The network is either loaded from an already saved sparse matrix and a
+        node attribute CSV using the following attributes:
             * adjacency_file:  scipy.sparse.csr matrix saved as an `npz` file
-            * node_attribute_file: CSV to be loaded as a pd.DataFrame, rows in order of previous matrix rows
-                TODO: should contain a column called RINPERSOON that is the primary key for node identification?
+            * node_attribute_file: CSV to be loaded as a pd.DataFrame, rows in
+              order of previous matrix rows should contain a column called
+              "label" that is the primary key for node identification
         
         Or in-memory objects can also be given to the constructor:
             * adjacency_matrix: scipy.sparse.csr matrix
-            * node_attribute_dataframe: pd.DataFrame, rows in order of previous matrix rows
+            * node_attribute_dataframe: pd.DataFrame, rows in order of previous
+              matrix rows
  
         Pre-stored files with standard names can be called with the shorthand:
             * from_library: str
-        Then the npz and csv.gz files will be read from the library_path/from_library folder similarly to the first method.
+        Then the npz and csv.gz files will be read from the
+        library_path/from_library folder similarly to the first method.
  
-        After loading these two key elements, class attributes and methods work the same.
+        After loading these two key elements, class attributes and methods work
+        the same.
  
-        The adjacency matrix self.A is stored in a `scipy.sparse.csr_matrix` class, that only saves nonzero
-        elements, and on which scipy csgraph algorithms run. People are indexed from 0 to N-1, where N is the
-        total number of nodes in this network.
+        The adjacency matrix self.A is stored in a `scipy.sparse.csr_matrix`
+        class, that only saves nonzero elements, and on which scipy csgraph
+        algorithms run. People are indexed from 0 to N-1, where N is the total
+        number of nodes in this network.
  
-        Two dictionaries mapping hashed CBS ids to integer ids and back are created based on the node attribute file in the self.nodemap
-        and self.nodemap_back attributes. These mappings only refer to one instance of the class - if you create a subgraph (see later)
-        the coding is going to change, and the mapping should be found in the new instance that represents the subgraph.
+        Two dictionaries mapping user id (label) to integer node ids (NID) and
+        back are created based on the node attribute file in the
+        `self.map_label_to_nid` and `self.map_nid_to_label` attributes. These
+        mappings only refer to one instance of the class - if you create a
+        subgraph (see later) the coding is going to change, and the mapping
+        should be found in the new instance that represents the subgraph.
         
-        The adjacency matrix contains integers that encode linktypes if viewed as binary numbers.
-        Each possible linktype is assigned an integer of the form 2**i. For example, if both type i and type j
-        edge is present between two people, then the corresponding value in self.A would be 2**i+2**j. It means that we can test for a certain
-        edgetype using bitwise AND operation very cheaply. E.g. a certain element of self.A is 7, then 7=1+2+4 which means
-        that edgetypes 0,1, and 2 are present between the two people, and 7&2 = 2 in Python (it behaves like a mask 111 & 010 = 010).
+        The adjacency matrix contains integers that encode linktypes if viewed
+        as binary numbers. Each possible linktype is assigned an integer of the
+        form 2**i. For example, if both type i and type j edge is present
+        between two people, then the corresponding value in self.A would be
+        2**i+2**j. It means that we can test for a certain edgetype using
+        bitwise AND operation very cheaply. E.g. a certain element of self.A is
+        7, then 7=1+2+4 which means that edgetypes 0,1, and 2 are present
+        between the two people, and 7&2 = 2 in Python (it behaves like a mask
+        111 & 010 = 010).
         
-        scipy.csr matrices are cheap to slice rowwise, but beware, some operation that seem straightforward in numpy might be costly 
-        (e.g. getting random coordinates after each other or colwise slicing)! If something is running too long, consult the scipy reference manual.
+        scipy.csr matrices are cheap to slice rowwise, but beware, some
+        operation that seem straightforward in numpy might be costly (e.g.
+        getting random coordinates after each other or colwise slicing)! If
+        something is running too long, consult the scipy reference manual.
  
-        Node attributes are stored in self.node_attributes pandas.DataFrame, column names are translated into English based on self.attribute_colnames, 
-        CBS code tables of used variables are accessible from self.attribute_code_table, keys of that variable are the English colnames.
+        Node attributes are stored in `self.node_attributes` which is a
+        `pandas.DataFrame`. It is possible to store human-readable or longer
+        column names in `self.attribute_colnames`, and code tables for used
+        variables in  `self.attribute_code_table`, keys of that variable are the
+        colnames in the values of `self.attribute_colnames`.
  
         Example loadings:
  
         ```
         # FROM FILES
-        # insert class path to sys path to access popnet
-        import sys
+        # insert class path to sys path to access
+        import sys 
         sys.path.insert(0,'/data/projecten/popnet/src/')
  
-        # import custom class for the network
-        from mln import MultiLayeredNetwork
+        # import custom class for the network from mln
+        import MultiLayeredNetwork
  
         # read the whole 2018 POPNET network
         popnet = MultiLayeredNetwork(
@@ -113,7 +136,7 @@ class MultiLayeredNetwork:
  
         # read the whole 2018 POPNET network
         popnet = MultiLayeredNetwork(
-            from_library="amsterdam_parents"
+            from_library="full"
         )
  
         ```
@@ -121,60 +144,74 @@ class MultiLayeredNetwork:
         Parameters
             ----------
                 adjacency_file : str, default ""
-                    path of `npz` file containing `scipy.sparse.csr_matrix` saved in binary format
+                    path of `npz` file containing `scipy.sparse.csr_matrix`
+                    saved in binary format
                 node_attribute_file : str, default ""
-                    path of (gzipped) CSV file containing node atributes comma separated, containing 'RINPERSOON' column
+                    path of (gzipped) CSV file containing node atributes comma
+                    separated, containing 'label' column
                 adjacency_matrix : scipy.sparse.csr_matrix, default None
-                    scipy.sparse.csr_matrix of size NxN encoding the adjacency matrix
-                node_attribute_dataframe : pandas.DataFrame
-                    pandas.DataFrame containing exactly N rows corresponding to the matrix rowsm containing 'RINPERSOON' column
-                    other columns having attributes of graph data
+                    scipy.sparse.csr_matrix of size NxN encoding the adjacency
+                    matrix
+                node_attribute_dataframe : pandas.DataFrame, default None
+                    pandas.DataFrame containing exactly N rows corresponding to
+                    the matrix rowsm containing 'label' column other columns
+                    having attributes of graph data
                 from_library : str, default ""
-                    short name to get network read from `library_path` subdirectory
+                    short name to get network read from `library_path`
+                    subdirectory
                 library_path : str, default "/data/projecten/popnet/library"
                     path where library entries are stored
                 linktypes_file : str, default '/data/projecten/popnet/meta/linktypes_en_full.csv'
-                    csv file mapping linktype binary codes and integer codes to layers and string labels
+                    csv file mapping linktype binary codes and integer codes to
+                    layers and string labels
                 layer_binary_repr_file : str, default '/data/projecten/popnet/meta/layer_binary_codes.json'
                     JSON mapping layer names to binary equivalents
-                colors_file : str, default '/data/projecten/popnet/meta/layer_colors.json'
+                colors_file : str, default
+                '/data/projecten/popnet/meta/layer_colors.json'
                     JSON defining layer colors for visualization
                 attribute_colnames : str, default '/data/projecten/popnet/meta/attribute_colnames.json'
-                    JSON containing the Dutch -> English CBS attribute column name translations
-                attribute_code_table = '/data/projecten/popnet/meta/attribute_code_table.json'
-                    JSON containing English-translated possible attribute values for all columns
+                    JSON containing translations for column names
+                attribute_code_table : str, default '/data/projecten/popnet/meta/attribute_code_table.json'
+                    JSON containing translation of possible attribute values for
+                    all columns
+                verbose : bool, default False
+                    if True, prints information while loading  / manipulating data
  
         Attributes
             ---------
                 A : scipy.sparse.csr_matrix[int64]
-                    adjacency matrix NxN, each element encodes the linktypes in a binary fashion
+                    adjacency matrix NxN, each element encodes the linktypes in
+                    a binary fashion
                 node_attributes : pd.DataFrame
-                    table containing node attributes RINPERSOON column containing CBS id,
-                    ID column containing integer ID
-                nodemap : dict
-                    RINPERSOON CBS ID (int) -> 0...N-1 integer ID (int) mapping
-                nodemap_back : dict
-                    0...N-1 integer ID (int) -> RINPERSOON CBS ID (int) mapping
+                    table containing node attributes label column containing label,
+                    "label" column containing integer / string label
+                map_label_to_nid : dict
+                    label (int or str) -> 0...N-1 integer NID (int) mapping
+                map_nid_to_label : dict
+                    0...N-1 integer NID (int) -> label (int or str) mapping
                 N : int
                     number of nodes
                 linktypes : pd.DataFrame
                     table containing info on linktypes in the networks
-                linktype_dict : dict
-                    linktype (int) -> long label (str) e.g. for plotting
-                layer_binary_repr : dict
-                    layer (str) -> binary encoding (int) e.g. for slicing
+                linktypes_dict : dict
+                    dictionary containing dictionaries for efficient conversion from 
+                    binary -> code, binary -> label
+                    code -> binary, code -> label
+                    label -> binary, label -> code
                 colors : dict
                     layer (str) -> hex color (str) for plotting
                 attribute_colnames : dict
-                    Dutch node attribute column names (str) -> English node attribute column names (str) 
+                    node attribute column names (str) -> human-readable node
+                    attribute column names (str) 
                 attribute_code_table : dict
-                    English node attribute column names (str) -> dict of code keys -> code values corresponding to different columns
-                    useful for interpreting results
-                    e.g. "gender" : {
-                            "1": "Man",
-                            "2": "Woman",
-                            "9": "Unknown"
-                            }
+                    human-readable node attribute column names (str) -> dict of code
+                    keys -> code values corresponding to different columns
+                    useful for interpreting results e.g.
+                    "gender" : {
+                        "1": "Man",
+                        "2": "Woman",
+                        "9": "Unknown" 
+                    }
                 
         Returns
             ---------
@@ -196,19 +233,21 @@ class MultiLayeredNetwork:
             
         # check if a valid input exists
         if not from_library and adjacency_file == "" and adjacency_matrix is None:
-            print("Error. Should either select a library, give an adjacency_matrix file " + \
+            print("Error: should either select a library, give an adjacency_matrix file " + \
             "or give an adjacency matrix!")
             return None  
         
         if from_library:
             adjacency_file, node_attribute_file = self.get_library_files(library_path, from_library)
             if adjacency_file == None:
-                print("Error files could not be opened. Please give a valid library path!")
+                print("Error: files could not be opened. Please give a valid library path!")
                 return None
+            
         self.verboseprint("Reading node attribute files...")
         self.init_node_attributes(node_attribute_file, node_attribute_dataframe)
         self.verboseprint("Done.")
         self.init_meta_data()
+        self.init_linktypes(linktypes_file)
         
         self.verboseprint("Loading adjacency matrix...")
         if self.init_sparse_matrix(adjacency_file, adjacency_matrix) == -1:
@@ -217,7 +256,6 @@ class MultiLayeredNetwork:
             return None
         self.verboseprint("Done.")
         
-        self.init_linktypes(linktypes_file)
         self.init_layer_binary_repr(layer_binary_repr_file)
         self.init_colors(colors_file)
         self.init_attribute_colnames(attribute_colnames)
@@ -235,7 +273,7 @@ class MultiLayeredNetwork:
             "verbose" : verbose
         }
  
-    def get_library_files(self, library_path, from_library, pickle_dir="pickles"):
+    def get_library_files(self, library_path, from_library):
         """
         If library mode is used, this function checks if the path is valid and the correct
         files are stored in it. When this is the case, it returns the full path to the 
@@ -247,8 +285,6 @@ class MultiLayeredNetwork:
                 string containing the path to the library
             from_library : string
                 contains which folder from library to access: library_path/from_library/
-            pickle_dir : string, default "pickles"
-                contains which folder of the library contains pickle files
  
         Returns:
             adjacency_file : string
@@ -268,7 +304,7 @@ class MultiLayeredNetwork:
                 adjacency_file = library_path + "/" + from_library + "/adjacency.npz"
                 # path to the pickle of the node attributes pickle with the current
                 # pandas version and desired from_library
-                node_attribute_file = library_path + "/" + pickle_dir + f"/attributes_{from_library}_{pd.__version__}.pkl"
+                node_attribute_file = library_path + "/"  + from_library + f"/attributes_{pd.__version__}.pkl"
                 
                 return adjacency_file, node_attribute_file
         return None, None
@@ -277,16 +313,16 @@ class MultiLayeredNetwork:
     def init_node_attributes(self, node_attribute_file="", node_attribute_dataframe=None):
         """
         Initialize self.node_attributes. Either set to node_attribute_dataframe or read
-        from .csv or .csv.gz file. If no node_attribute file or dataframe is given,
+        from .csv, .csv.gz, or pickle file. If no node_attribute file or dataframe is given,
         self.node_attributes is initialized to None
         
         Parameters:
             -------------
-            node_attribute_file : string
-                string containing the (path to) node attribute file. Type: .csv or .csv.gz
+            node_attribute_file : string, default ""
+                string containing the (path to) node attribute file. Type: .csv, .csv.gz or pickle
                 Type is derived from the file extension
-            node_attribute_dataframe : pandas dataframe
-                Pandas dataframe containing node attributes
+            node_attribute_dataframe : pandas.DataFrame, default None
+                pandas dataframe containing node attributes
             -------------
         """
         try:
@@ -300,7 +336,7 @@ class MultiLayeredNetwork:
                 try:
                     self.node_attributes = pd.read_pickle(node_attribute_file)
                 except FileNotFoundError:
-                    print("Current pandas version is incompatible with saved pickles. Use .csv.gz file")
+                    print("Warning: Current pandas version is incompatible with saved pickles. Using .csv.gz file and creating pickle")
                     l = node_attribute_file.split("/")
                     library_path = "/".join(l[:-2])
                     pickle_dir = l[-2]
@@ -312,41 +348,46 @@ class MultiLayeredNetwork:
                     self.verboseprint(f"Loading attributes.csv.gz")
                     self.node_attributes = pd.read_csv(f"{library_path}/{from_library}/attributes.csv.gz", compression="gzip")
                     self.verboseprint("Done. Pickling with current pandas version")
-                    self.node_attributes.to_pickle(f"{library_path}/{pickle_dir}/attributes_{from_library}_{pd.__version__}.pkl")
+                    self.node_attributes.to_pickle(f"{library_path}/{from_library}/attributes_{pd.__version__}.pkl")
             elif node_attribute_file.endswith(".csv.gz"):
                 self.node_attributes = pd.read_csv(node_attribute_file, compression="gzip")
             else:
                 self.node_attributes = pd.read_csv(node_attribute_file)
         except:
             if node_attribute_file != "":
-                print(f"node_attribute_file {node_attribute_file} could not be opened")
+                print(f"Error: node_attribute_file {node_attribute_file} could not be opened")
             self.node_attributes = None
-        
-        # TODO: what to do with RINPERSOON?
-        # if no node attributes, create artificial RINPERSOON attribute elsewhere
+
+        if "label" not in self.node_attributes.columns:
+            self.node_attributes = None
+            print(f'Error: column "label" could not be found in the node attribute file {node_attribute_file}!')
  
     def init_meta_data(self):
         """
-        Initialize meta_data: self.nodemap, self.nodemap_back and self.N (numer of nodes)
-        based on ID and RINPERSOON columns of node_attributes stored in self.node_attributes
+        Initialize meta_data: self.map_label_to_nid, self.map_nid_to_label,
+        self.N (numer of nodes), and storage dictionary for layer adjacency
+        matrices based on NID and label columns of node_attributes stored in
+        self.node_attributes
         """
         if self.node_attributes is None:
-            self.nodemap_back = None
-            self.nodemap = None
+            self.map_nid_to_label = None
+            self.map_label_to_nid = None
             self.N = None
             return
         
-        # TODO: this only works if the node_attributes dataframe contains RINPERSOON
-        # getting global node_id mappings for overlapping layers.
-        # integer ID -> RINPERSOON
-        self.nodemap_back = self.node_attributes['RINPERSOON'].to_dict()
+        # getting global NID mappings for overlapping layers.
+        # integer NID -> label
+        self.map_nid_to_label = self.node_attributes['label'].to_dict()
  
-        # RINPERSOON -> integer ID
-        self.nodemap = {v:k for k,v in self.nodemap_back.items()}
-        self.node_attributes['ID'] = self.node_attributes.index
+        # label -> NID
+        self.map_label_to_nid = {v:k for k,v in self.map_nid_to_label.items()}
+        self.node_attributes['NID'] = self.node_attributes.index
  
         # number of nodes
-        self.N = max(self.nodemap_back.keys())+1
+        self.N = max(self.map_nid_to_label.keys())+1
+
+        # storage for layer adjacency matrices
+        self.layer_adj = {}
  
     def get_sparsematrix_from_csv(self, csv_file):
         """
@@ -355,21 +396,17 @@ class MultiLayeredNetwork:
         Parameters:
             -------------
             csv_file : string
-                file containing edgelist. Should have the following columns: 
+                file containing edgelist. Should have the following columns:
                 source, target, binary_linktype
  
         Returns:
             A_new : csr_matrix
                 resulting sparsematrix
             -------------
-        """
-        # TODO I don't see how this function binds correctly to the existing structure
-        # How does it couple to node attributes?
-        # TODO: check if corrected in this version
-        
+        """       
         # get edgelists and columns corresponding to source, target and linktype
         # assumed layout: source, target, linktypes
-        if csv_file.endswith("gzip"):
+        if csv_file.endswith("gz"):
             edgelist = pd.read_csv(csv_file, skiprows=[0], header = None, compression = "gzip").drop_duplicates()
         else:
             edgelist = pd.read_csv(csv_file, skiprows=[0], header = None).drop_duplicates()
@@ -377,40 +414,60 @@ class MultiLayeredNetwork:
             source_list = edgelist[0]
             target_list = edgelist[1]  
             if edgelist.shape[1]>=3:
-                binary_linktype = edgelist[2]
+                linktypes = list(edgelist[2])
             else:
-                binary_linktype = []
+                linktypes = []
         except:
-            print("Input edgelist should have at least two columns!")
+            print("Error: input edgelist should have at least two columns!")
             return
  
         # get number of nodes
         all_nodes = source_list.append(target_list).unique()
 
-        if len(binary_linktype) == 0:
-            binary_linktype = [1 for i in range(len(source_list))]
+        # Initialize linktype
+        if self.linktypes is None:
+            # Get largest binary linktype value
+            nr_links = len(np.unique(linktypes))
+            self.max_bin_linktype = nr_links ** 2
+            
+            # Generate based on binary linktypes in A
+            columns = ["code", "label", "binary_linktype"]
+            labels = pd.unique(linktypes)
+            binary_linktypes = [2**i for i in range(nr_links)]
+            data = np.array([labels] + [labels] + [binary_linktypes]).T
+            
+            # Initialize linktypes
+            self.linktypes = pd.DataFrame(data, columns=columns)
+            self.linktypes.set_index("binary_linktype", inplace=True)
+            self.init_linktypes_dict()
+            
+        if len(linktypes) == 0:
+            binary_linktypes = [1 for i in range(len(source_list))]
+        else:
+            binary_linktypes = self.convert_linktype(linktypes, input_type="code", output_type="bin")
         
         # initialise metadata if not initialised (no attribute data)
+        # ids in edgelist are labels, mapped to nodeids
         if self.node_attributes is None:
-            self.nodemap = {all_nodes[i] : i for i in range(len(all_nodes))}
-            self.nodemap_back = {i : all_nodes[i] for i in range(len(all_nodes))}
-            self.N = max(self.nodemap_back.keys())+1
+            self.map_label_to_nid = {all_nodes[i] : i for i in range(len(all_nodes))}
+            self.map_nid_to_label = {i : all_nodes[i] for i in range(len(all_nodes))}
+            self.N = max(self.map_nid_to_label.keys())+1
 
-        # Convert RINPERSOON used in .csv edgelist to ID
-        # TODO check: is this correct?
-        source_list = [self.nodemap[i] for i in source_list]
-        target_list = [self.nodemap[i] for i in target_list]
-        
+        # convert label used in .csv edgelist to ID
+        source_list = [self.map_label_to_nid[i] for i in source_list]
+        target_list = [self.map_label_to_nid[i] for i in target_list]
+
         # create sparsematrix, use ids used in .csv file and add edgetype
-        A_new = csr_matrix(((binary_linktype),(source_list,target_list)), dtype = np.int64)
+        A_new = csr_matrix(((binary_linktypes),(source_list,target_list)), dtype = np.int64, shape=(self.N, self.N))
         return A_new
     
     def init_sparse_matrix(self, adjacency_file="", adjacency_matrix=None):
         """
-        Initialize self.A sparsematrix. Either give a sparse matrix or a file from which the sparse matrix
-        can be initialized. Valid file types are .npz binary (containing a scipy.csr_matrix), or 
-        .csv, .csv.gz (for edgelists). If no attributes are given,
-        this function initializes RINPERSOON with artificial IDs
+        Initialize self.A sparsematrix. Either give a sparse matrix or a file
+        from which the sparse matrix can be initialized. Valid file types are
+        .npz binary (containing a scipy.csr_matrix), or .csv, .csv.gz (for
+        edgelists). If no attributes are given, this function initializes label
+        with artificial IDs
         
         Parameters:
             -------------
@@ -436,31 +493,29 @@ class MultiLayeredNetwork:
         try:
             if adjacency_matrix is None and adjacency_file.endswith(".npz"):
                 self.A = load_npz(adjacency_file)
-
-            elif adjacency_matrix is None:# adjacency_file.endswith(".csv.gz") or adjacency_file.endswith(".csv") :
-                # TODO: initialize node attributes before initialization from csv
+            elif adjacency_matrix is None and adjacency_file.endswith(".csv.gz") or adjacency_file.endswith(".csv") :
                 self.A = self.get_sparsematrix_from_csv(adjacency_file)
         except:
             print(f"Error: Adjacency_file {adjacency_file} could not be loaded succesfully")
             return -1
        
-        # Initialize node attribute / RINPERSOON data
-        # TODO: use nodemap or nodemap_back
+        # Initialize node attribute / label data
         if self.node_attributes is None:
-            # If nodemap is not yet initialized, initialize here
-            if self.nodemap is None:
+            # If map_label_to_nid is not yet initialized, initialize here
+            if self.map_label_to_nid is None:
                 self.N = self.A.shape[0]
                 # if only the matrix is given (no .csv), then node_id is assumed to equal label
-                self.nodemap = {i : i for i in range(self.N)}
-                self.nodemap_back = {i : i for i in range(self.N)}
+                self.map_label_to_nid = {i : i for i in range(self.N)}
+                self.map_nid_to_label = {i : i for i in range(self.N)}
             
             # Add label data to node_attributes
-            self.node_attributes = pd.DataFrame({"RINPERSOON": [i for i in self.nodemap_back.keys()] })
+            self.node_attributes = pd.DataFrame({"label": [i for i in self.map_nid_to_label.keys()] })
  
     def init_linktypes(self, linktypes_file):
         """
-        Initialize self.linktypes and self.linktype_dict. linktypes_file should be .json.
-        If no (valid) file is given, self.linktypes = None
+        Initialize self.linktypes and self.linktypes_dict. linktypes_file should
+        be .json. If no (valid) file is given, self.linktypes is initialized
+        based on the largest binary link in self.A
         
         Parameters:
             -------------
@@ -470,23 +525,63 @@ class MultiLayeredNetwork:
             -------------
             None
         """
- 
-        #TODO: when new mln is created, should inherit old linktypes or pass files again?
-        try: 
+        try:
             self.linktypes = pd.read_csv(linktypes_file)
-            self.linktype_dict = self.linktypes["label_long"].to_dict()
-            self.linktype_binary_dict = dict(zip(self.linktypes["binary_linktype"], self.linktypes["label"]))
+            # Check columns
+            if not ("label" in self.linktypes.columns or "code" in self.linktypes.columns):
+                print("Error: linktypes should at least have column \"label\" or \"code\"")
+            
+            # Add new columns if not included
+            if "label" in self.linktypes and not "code" in self.linktypes:
+                self.linktypes["label"] = self.linktypes["code"]
+            elif "code" in self.linktypes and not "label" in self.linktypes:
+                self.linktypes["code"] = self.linktypes["label"]
+            if not "binary_linktype" in self.linktypes:
+                self.linktypes["binary_linktype"] = [2**i for i in range(len(self.linktypes))]
+            
+            max_bin_link = self.linktypes["binary_linktype"].max()
+            self.max_bin_linktype = int(np.floor(np.log2(max_bin_link)))
+            self.linktypes.set_index("binary_linktype", inplace=True)
+            self.init_linktypes_dict()
         except:
             if linktypes_file != "":
-                print(f"Linktypes_file {linktypes_file} could not be opened!")
+                print(f"Error: linktypes_file {linktypes_file} is not valid.")
+                print("Obtaining linktypes from adjacency matrix.")
             self.linktypes = None
-            self.linktype_dict = None
-            self.linktype_binary_dict = None
+    
+    def init_linktypes_dict(self):
+        """
+        Initialize dictionary for efficient conversion from link, label, code and 
+        binary label to each other. Resulting dictionary is stored in self.linktypes_dict
+        
+        Returns:
+            -------------
+            None
+        """
+        binary = self.linktypes.index.tolist()
+        codes = self.linktypes['code'].tolist()
+        labels = self.linktypes['label'].tolist()
+        
+        bin_to_code = dict(zip(binary, codes))
+        bin_to_label = dict(zip(binary, labels))
+        code_to_label = dict(zip(codes, labels))
+        code_to_bin = dict(zip(codes, binary))
+        label_to_bin = dict(zip(labels, binary))
+        label_to_code = dict(zip(labels, codes))
+        
+        self.linktypes_dict = {
+            'bin_to_code' : bin_to_code,
+            'bin_to_label' : bin_to_label,
+            'code_to_label' : code_to_label,
+            'code_to_bin' : code_to_bin,
+            'label_to_bin' : label_to_bin,
+            'label_to_code' : label_to_code
+        }
     
     def init_layer_binary_repr(self, layer_binary_repr_file):
         """
-        Initialize self.layer_binary_repr layer_binary_repr_file should be .json.
-        If no (valid) file is given, self.layer_binary_repr = None
+        Initialize self.layer_binary_repr layer_binary_repr_file should be
+        .json. If no (valid) file is given, self.layer_binary_repr = {all : 1}
         
         Parameters:
             -------------
@@ -497,6 +592,7 @@ class MultiLayeredNetwork:
             -------------
             None
         """
+        # TODO: the current setup seems to be very strange
         # layer -> integer representations: summing up all binary numbers corresponding to a certain layer
         try:
             f = open(layer_binary_repr_file)
@@ -504,12 +600,12 @@ class MultiLayeredNetwork:
         except:
             if layer_binary_repr_file != "":
                 print(f"layer_binary_repr_file {layer_binary_repr_file} could not be opened")
-            self.layer_binary_repr = None
+            self.layer_binary_repr["all"] = 1
     
     def init_colors(self, colors_file):
         """
-        Initialize self.colors with data from colors_file. File should be .json.
-        If no (valid) file is given, self.colors = None
+        # Initialize self.colors with data from colors_file. File should be .json.
+        # If no (valid) file is given, self.colors = {all : black_color}
         
         Parameters:
             -------------
@@ -523,13 +619,29 @@ class MultiLayeredNetwork:
             self.colors = json.load(f)
         except FileNotFoundError:
             if colors_file != "":
-                print(f"colors_file {colors_file} could not be opened")
-            self.colors = None
+                print(f"Error: colors_file {colors_file} could not be opened")
+            
+            # No layers, initialize default color
+            if "layer" not in self.linktypes.columns:
+                self.colors = {"all" : "#000000"}
+                return
+            
+            # Generate color for each layer, if more than 10 colors use Spectarl scheme
+            layers = np.unique(self.linktypes["layer"])
+            if len(layers) <= 10:
+                colors = matplotlib.cm.tab10(np.linspace(0, 1, len(layers)))
+            else:
+                colors = matplotlib.cm.Spectral(np.linspace(0, 1, len(layers)))
+            tel = 0
+            self.colors = {}
+            for l in layers:
+                self.colors[l] = matplotlib.colors.to_hex(colors[tel])
+                tel += 1
  
     def init_attribute_colnames(self, attribute_colnames):
         """
-        Initialize self.attribute_colnames with data from colors_file. File should be .json.
-        If no (valid) file is given, self.attribute_colnames = None
+        # Initialize self.attribute_colnames with data from colors_file. File should be .json.
+        # If no (valid) file is given, self.attribute_colnames = None
         
         Parameters:
             -------------
@@ -537,19 +649,20 @@ class MultiLayeredNetwork:
                 string containing the (path to) attribute_colnames. Type: .json
             -------------
         """
-        # adding attribute dicts
+        # adding attribute dicts and translate the column names
         try:
             f = open(attribute_colnames)
             self.attribute_colnames = json.load(f)
+            self.node_attributes.rename(columns=self.attribute_colnames, inplace=True)
         except FileNotFoundError:
             if attribute_colnames != "":
-                print(f"attribute_colnames file {attribute_colnames} could not be opened")
+                print(f"Error: attribute_colnames file {attribute_colnames} could not be opened")
             self.attribute_colnames = None
     
     def init_attribute_code_table(self, attribute_code_table):
         """
-        Initialize self.attribute_code_table with data from attribute_code_table. File should be .json.
-        If no (valid) file is given, self.attribute_code_table = None
+        # Initialize self.attribute_code_table with data from attribute_code_table. File should be .json.
+        # If no (valid) file is given, self.attribute_code_table = None
         
         Parameters:
             -------------
@@ -560,18 +673,24 @@ class MultiLayeredNetwork:
         try:
             f = open(attribute_code_table)
             self.attribute_code_table = json.load(f)
+            for col in self.attribute_code_table.keys():
+                if not col in  self.node_attributes.columns:
+                    print(f"Warning: column \"{col}\" is not in node_attributes. Skip translation of entries")
+                    continue
+                self.node_attributes[col].update(self.attribute_code_table[col])
         except:
             if attribute_code_table != "":
                 print(f"attribute_code_table file {attribute_code_table} could not be opened")
             self.attribute_code_table = None
     
-    def get_filtered_network(self, layer_codes = [] , full_layers = [], selected_nodes = None):
+    def get_filtered_network(self, layer_codes = [] , full_layers = [], selected_nodes = None, use_label=True):
         """
         Returns MultiLayeredNetwork based on edge and node filtering.
         
         Possibilities:
  
-        1. Edge filtering 1: defining a list of full layers through the kwarg `full_layers`. List of full layers:
+        1. Edge filtering 1: defining a list of full layers through the kwarg
+           `full_layers`. List of full layers:
                 - family
                 - household
                 - neighbors
@@ -580,15 +699,16 @@ class MultiLayeredNetwork:
             E.g. to get the full family and household layers:
             `mln.get_edgelist(full_layers = ["family", "household"])`
  
-        2. Edge filtering 2: defining layer codes listed in the `mln.linktypes` DataFrame though the kwarg `layer_codes`.
-            E.g. to select the parent and grandchild links:
+        2. Edge filtering 2: defining layer codes listed in the `mln.linktypes`
+           DataFrame though the kwarg `layer_codes`. E.g.
             `mln.get_edgelist(layer_codes = [104,108])`
  
         3. Edge filtering 1+2: mixing the two definitions. 
-            E.g. to get all family connections, and elementary school classmates:
+            E.g.
             `mln.get_edgelist(full_layers = ["family"], layer_codes = [501])`
  
-        3. Node filtering: given a list of RINPERSOON IDs, select subgraph spanned by those nodes, consisting only of selected edgetypes.
+        3. Node filtering: given a list of labels, select subgraph spanned by
+           those nodes, consisting only of selected edgetypes.
  
         Parameters:
             -------------
@@ -597,54 +717,57 @@ class MultiLayeredNetwork:
                 see list of possible layer codes in self.linktypes
             full_layers : list of str, default []
                 list of full layers to include in returned object
-                5 possible types: "family","work","neighbor","school","household"
             selected_nodes : list of int, default None
                 if None, return all nodes in the parent object
-                if list, select nodes and their spanned subgraph with given RINPERSOON ids into returned object
+                if list, select nodes and their spanned subgraph with given
+                labels into returned object
  
         Returns:
             -------------
             MultiLayeredNetwork
-                filtered network with less data but the very same structure as the parent object
+                filtered network with less data but the very same structure as
+                the parent object
         """
- 
+
         # if there is any node selection, then decrease matrix size and grab the
         # relevant rows from the node attributes table
         if selected_nodes is not None and len(selected_nodes) > 0:
             # remove duplicates from list
             selected_nodes = pd.unique(selected_nodes)
-            # mapping CBS IDs to integer IDs, creating node mapping
-            selected_nodes_int = np.array([self.nodemap[i] for i in selected_nodes])
+            # mapping label to NIDs, creating node mapping
+            if use_label == True:
+                selected_nodes = np.array([self.map_label_to_nid[i] for i in selected_nodes])
             # slicing the adjacency matrix
             # for small selections, it is faster to do all slicing on the csr_matrix
-            if len(selected_nodes_int) < 250:
+            if len(selected_nodes) < 250:
                 try:
                     # the resulting matrix is transposed, but using .T returns a
                     # csc_matrix so it must be converted back
-                    selection_A = self.A[selected_nodes_int, selected_nodes_int.reshape(-1,1)].T.tocsr()
+                    selection_A = self.A[selected_nodes, selected_nodes.reshape(-1,1)].T.tocsr()
                     # for unknown reasons this code can crash, so as a backup we
                     # simply use the other approach
                 except:
-                    selection_A = self.A[selected_nodes_int].tocsc()[:,selected_nodes_int].tocsr()
+                    selection_A = self.A[selected_nodes].tocsc()[:,selected_nodes].tocsr()
             # for large selections, it is faster to first slice on the rows,
             # then convert to a csc_matrix and do column slicing there
             else:
-                selection_A = self.A[selected_nodes_int].tocsc()[:,selected_nodes_int].tocsr()
+                selection_A = self.A[selected_nodes].tocsc()[:,selected_nodes].tocsr()
 
-            selection_node_attributes = self.node_attributes.iloc[selected_nodes_int].reset_index(drop=True)
-            selection_node_attributes['ID'] = selection_node_attributes.index
+            selection_node_attributes = self.node_attributes.iloc[selected_nodes].reset_index(drop=True)
+            selection_node_attributes['label'] = selection_node_attributes.index
  
         else:
             selection_A = deepcopy(self.A)
             selection_node_attributes = self.node_attributes
  
         binary_repr = 0
+        print(full_layers)
         if len(full_layers)>0:
             # adding up the binary codes for the full layers from the argument
             binary_repr += sum([self.layer_binary_repr[l] for l in np.unique(full_layers)])
         if len(layer_codes)>0:
-            for c in layer_codes:
-                b = self.linktypes.set_index("code").loc[c]["binary_linktype"]
+            binary_codes = self.convert_linktype(layer_codes)
+            for b in binary_codes:
                 # if the code was not already present in the full layers before
                 if (binary_repr & b) == 0:
                     binary_repr += b
@@ -662,6 +785,18 @@ class MultiLayeredNetwork:
         )
 
     def report_time(self, message = "", init=False):
+        """
+        This is a helper function for optimization time measurements.
+
+        Parameters:
+        -----------
+            message : str, default ""
+                Some hints on the measurement may be given here. If empty, 
+                only the elapsed time will be printed.
+            init : bool, default False
+                If True, start timer, if False, measure elapsed time since
+                last call.
+        """
         if init:
             self.tic = datetime.now().timestamp()
             print("Initialized timer.")
@@ -676,17 +811,17 @@ class MultiLayeredNetwork:
  
     def get_edgelist(self, without_linktypes = True):
         """
-        This function returns a  pandas dataframe containing the edge list representing
-        sparse matrix stored in self.A. 
+        This function returns a  pandas dataframe containing the edge list
+        representing sparse matrix stored in self.A. 
 
-        If without_linktypes is True, then the edges correspond to the nonzero values of 
-        self.A. If it is False, binary weights in self.A are decoded.
+        If without_linktypes is True, then the edges correspond to the nonzero
+        values of self.A. If it is False, binary weights in self.A are decoded.
         
         If one does not need the linktypes, then the resulting columns are:
         "source", "target"
 
-        Otherwise, the columns are:
-        "source", "target", "binary_linktype", "linktype"
+        Otherwise, the columns are: "source", "target", "binary_linktype",
+        "linktype"
  
         Returns
            -------
@@ -704,10 +839,10 @@ class MultiLayeredNetwork:
             edgelist = pd.DataFrame(np.concatenate((edges, weights), axis=1))
             # self.report_time(message = "Creating edgelist dataframe.")
     
-            # mapping back edges to the original CBS IDs
-            edgelist[0] = edgelist[0].map(self.nodemap_back)
-            edgelist[1] = edgelist[1].map(self.nodemap_back)
-            # self.report_time(message = "Remapping node ids.")
+            # mapping back edges to the original labels
+            edgelist[0] = edgelist[0].map(self.to_label)
+            edgelist[1] = edgelist[1].map(self.to_label)
+            # self.report_time(message = "Remapping node labels.")
     
             # add colnames and (human) readable link types
             # if an edge has multiple linktypes, it is listed multiple times with the linktype code
@@ -738,24 +873,27 @@ class MultiLayeredNetwork:
     
     def to_igraph(self, directed=True, edge_attributes=True, node_attributes=False, replace_igraph=False):
         """
-        This function returns an igraph object of the sparsematrix stored in self.A.
-        Edge attributes (link types) and node attributes (from self.node_attributes) 
-        can be added to this object.
-        If self.igraph has not yet been initialized, this is set to the 
+        This function returns an igraph object of the sparsematrix stored in
+        self.A. Edge attributes (link types) and node attributes (from
+        self.node_attributes) can be added to this object. If self.igraph has
+        not yet been initialized, this is set to the 
  
         Parameters:
             -----------
             directed : boolean, default True
-                mode of returned igraph object: True for directed, False for undirected graph
+                mode of returned igraph object: True for directed, False for
+                undirected graph
             edge_attributes : boolean, default True
-                True if edge attributes from self.node_attributes should be added to igraph object.
+                True if edge attributes from self.node_attributes should be
+                added to igraph object.
             node_attributes : boolean, default False
                 True if node attributes should be added to igraph object
-                obtained from self.node_attributes
-                Note: RINPERSOON is always added
+                obtained from self.node_attributes Note: the "label" column is
+                always added.
             replace_igraph : boolean, default False
-                When the mln object already has an igraph object, it will by default not be replaced
-                by the newly generated object. To replace the object, set replace_igraph to True
+                When the mln object already has an igraph object, it will by
+                default not be replaced by the newly generated object. To
+                replace the object, set replace_igraph to True
  
         Returns
            -------
@@ -783,8 +921,8 @@ class MultiLayeredNetwork:
                 # first turning the series into a list improves performance
                 g.vs[col_name] = list(self.node_attributes[col_name])
         else:
-            # Add only RINPERSOON
-            g.vs["RINPERSOON"] = list(self.node_attributes["RINPERSOON"])
+            # Add only label
+            g.vs["label"] = list(self.node_attributes["label"])
         
         # store igraph object as mln attribute
         if self.igraph is None or replace_igraph :
@@ -794,23 +932,25 @@ class MultiLayeredNetwork:
  
     def to_networkx(self, directed = True, edge_attributes = True, node_attributes = False, ignore_limit = False):
         """
-        This function returns a networkx object of the sparsematrix stored in self.A.
-        Edge attributes (link types) and node attributes (from self.node_attributes) 
-        can be added to this object.
+        This function returns a networkx object of the sparsematrix stored in
+        self.A. Edge attributes (link types) and node attributes (from
+        self.node_attributes) can be added to this object.
  
         Parameters:
             -----------
             directed : boolean, default True
-                mode of returned igraph object: True for directed, False for undirected graph
+                mode of returned igraph object: True for directed, False for
+                undirected graph
             edge_attributes : boolean, default True
-                True if edge attributes from self.node_attributes should be added to igraph object.
+                True if edge attributes from self.node_attributes should be
+                added to igraph object.
             node_attributes : boolean, default False
                 True if node attributes should be added to networkx object
-                obtained from self.node_attributes
-                RINPERSOON is always added
+                obtained from self.node_attributes The "label" column is always
+                added
             ignore_limit : boolean, default False
-                False if nx object can have at most nx_node_limit nodes
-                Set to True to ignore this limit
+                False if nx object can have at most nx_node_limit nodes Set to
+                True to ignore this limit
  
         Returns:
             -------
@@ -836,9 +976,9 @@ class MultiLayeredNetwork:
                 attribute_list = dict(zip(list(range(len(cur_col))), cur_col))
                 nx.set_node_attributes(g, attribute_list, col_name)
         else:
-            # always add RINPERSOON
-            nodemap_back_dict = dict(zip(list(range(len(self.nodemap_back))), self.nodemap_back))
-            nx.set_node_attributes(g, nodemap_back_dict, "RINPERSOON")
+            # always add "label" column
+            map_nid_to_label_dict = dict(zip(np.arange(len(self.map_nid_to_label)), self.map_nid_to_label))
+            nx.set_node_attributes(g, map_nid_to_label_dict, "label")
         
         # obtain and add (human readable) link types use dict for optimization
         link_dict = {}
@@ -859,6 +999,44 @@ class MultiLayeredNetwork:
  
         return g
     
+    def convert_linktype(self, linktypes, input_type='code', output_type='bin'):
+        """
+        This function converts a single linktype or list of linktypes to
+        their corresponding linklabels. Input can be binary, code or label.
+        All possible values for each are in self.linktypes
+ 
+        Parameters:
+            -----------
+            linktypes : int, string or list, no default
+                A single binary code or label of a linktype
+            input_type : string
+                Type of input. Options: "label", "code" and "bin"
+            output_type : string
+                Type of input. Options: "label", "code" and "bin"
+
+        Returns:
+            -----------
+            links : string or list
+                linktype (binary, code or label) corresponding to the given types
+                If one of the linktypes is not found, returns None
+         """
+        
+        dict_name = input_type + '_to_' + output_type
+        try:
+            d = self.linktypes_dict[dict_name]
+        except KeyError:
+            print('Error: dictionary value not found. Please choose from "label", "code", "bin"')
+            return None
+        
+        try:
+            if type(linktypes) == list:
+                return [d[link] for link in linktypes]
+            else:
+                return d[linktypes]
+        except:
+            print(f'Error: invalid linktype found: {input_type} to {output_type}')
+            return None
+    
     def decompose_binary_linktype(self,num):
         """
         Based on the integer linktype, returns a list with the linktype numbers.
@@ -874,7 +1052,7 @@ class MultiLayeredNetwork:
             list(str)
                 list of string linktypes corresponding to integer value
         """
-        return [self.linktype_binary_dict.get(2**i) for i in range(22) if num&(2**i)>0]
+        return [self.convert_linktype(2**i, input_type='bin', output_type='label') for i in range(self.max_bin_linktype) if num&(2**i)>0]
     
     def decompose_binary_linktype_2(self,num):
         """
@@ -891,16 +1069,17 @@ class MultiLayeredNetwork:
             list(str)
                 list of string linktypes corresponding to integer value
         """
-        return [(self.linktype_binary_dict.get(2**i), 2**i) for i in range(22) if num&(2**i)>0]
+        return [(i, self.convert_linktype(2**i, input_type='bin', output_type='label')) for i in range(self.max_bin_linktype) if num&(2**i)>0]
     
     def export_graph(self, file_name):
         """
-        Write self.A to file called file_name. The file extension is read to determine 
-        the type of output. Options are:
+        Write self.A to file called file_name. The file extension is read to
+        determine the type of output. Options are:
         - ".npz" or no extension: Binary (default)
         - ".csv" ".csv.gz": Edgelist format
         - ".graphml" : From igraph object to graphml format
-          Note: if self.igraph does not yet exist, an igraph object will be generated
+        Note: if self.igraph does not yet exist, an igraph object will be
+        generated
  
         Parameters:
             -----------
@@ -912,7 +1091,7 @@ class MultiLayeredNetwork:
         try:
             f = open(file_name, "w")
         except:
-            print(f"Error {file_name} could not be opened")
+            print(f"Error: {file_name} could not be opened")
             print("No graph exported")
             return
         
@@ -948,7 +1127,7 @@ class MultiLayeredNetwork:
             f = open(file_name, "w")
             f.close()
         except:
-            print(f"Error {file_name} could not be opened.")
+            print(f"Error: {file_name} could not be opened.")
             print("No node attributes exported.")
             return
         
@@ -970,9 +1149,12 @@ class MultiLayeredNetwork:
             node_attribute_file_name : str, default ""
                 .csv.gz file to write the node attributes to
             library_name : str, default ""
-                library name in which to save network files for later use, e.g. "amsterdam_parents"
-                is going to create adjacency.npz and attributes.csv.gz within library_name folder under self.library_path
-                can be later used in __init__ e.g. MultiLayeredNetwork(from_library = "amsterdam_parents") reads back to exported files
+                library name in which to save network files for later use, e.g.
+                "amsterdam_parents" is going to create adjacency.npz and
+                attributes.csv.gz within library_name folder under
+                self.library_path can be later used in __init__ e.g.
+                MultiLayeredNetwork(from_library = "amsterdam_parents") reads
+                back to exported files
             overwrite : bool, default False
                 if library name already exists, overwrite existing files if True
         """
@@ -1011,16 +1193,16 @@ class MultiLayeredNetwork:
         self.export_graph(graph_file_name)
         self.export_node_attributes(node_attribute_file_name)
         
-    def get_egonetwork(self, ego_rinpersoon, depth=1, return_list=False, ignore_limit=False):
+    def get_egonetwork(self, ego_label, depth=1, return_list=False, ignore_limit=False):
         """
-        Starting out from a given node, this function returns the networks at a given
-        depth around that selected node.
+        Starting out from a given node, this function returns the network at a
+        given depth around that selected node.
  
         Parameters:
         -----------
  
-            ego_rinpersoon : int
-                RINPERSOON ID of selected node
+            ego_label : int
+                label of selected node
             depth : int, default 1
                 depth in which to return network
             return_list : boolean, default False
@@ -1040,7 +1222,7 @@ class MultiLayeredNetwork:
             print("To ignore this limit, please use \'ignore_limit=True\'")
             return
         
-        ego = self.nodemap[ego_rinpersoon]
+        ego = self.to_nid(ego_label)
  
         # separating the first round allows to skip the expensive for loop,
         # leading to a substantial speedup
@@ -1052,7 +1234,7 @@ class MultiLayeredNetwork:
             # there might be circles when looking for new neighbors, so we take unique integer ids
             selected_nodes = pd.unique(np.concatenate((selected, next_neighbors)))
  
-        selected = list(map(lambda x: self.nodemap_back[x], selected))
+        selected = list(map(lambda x: self.map_nid_to_label[x], selected))
  
         # return mln or list of nodes in egonetwork
         if return_list:
@@ -1062,8 +1244,9 @@ class MultiLayeredNetwork:
     
     def create_affiliation_matrix(self, key, affil_edgelist):
         """
-        This method takes a person -> affiliation bipartite edgelist, and creates
-        scipy sparse representation for it, storing the mapping of IDs in a dict.
+        This method takes a person -> affiliation bipartite edgelist, and
+        creates scipy sparse representation for it, storing the mapping of
+        affiliation IDs in a dict.
  
         Parameters:
         -----------
@@ -1073,20 +1256,21 @@ class MultiLayeredNetwork:
                 the name of the bipartite structure for storage
             affil_edgelist : list[list]
                 list of 2-tuples containing bipartite edgelist
-                first node in the edges should correspond to a RINPERSOON ID in the mln instance
+                first node in the edges should correspond to a label in the mln instance
                 second node can be anything, e.g. work IDs
  
         Returns
         -------
             None
  
-        Creates a dictionary entry with key `key` into  mln.affiliation_matrix attribute with the following structure:
+        Creates a dictionary entry with key `key` into  mln.affiliation_matrix
+        attribute with the following structure:
  
         mln.affiliation_matrix[key] = {
             'A': bipartite sparse adjacency matrix, mln.N times M
             'M' : if M is the number of unique elements in the second class
-            'column_nodemap' : mapping IDs in second class to matrix column integer indices
-            'column_nodemap_back' : mapping column integer indices back to second class IDs
+            'column_map_label_to_nid' : mapping IDs in second class to matrix column integer indices
+            'column_map_nid_to_label' : mapping column integer indices back to second class IDs
         }
         """
         if not hasattr(self,"affiliation_matrix"):
@@ -1098,8 +1282,8 @@ class MultiLayeredNetwork:
  
         M = len(unique_affiliations)
  
-        self.affiliation_matrix[key]['column_nodemap_back'] = {i:elem for i,elem in enumerate(unique_affiliations)}
-        self.affiliation_matrix[key]['column_nodemap'] = {elem:i for i,elem in enumerate(set([v for k,v in affil_edgelist]))}
+        self.affiliation_matrix[key]['column_map_nid_to_label'] = {i:elem for i,elem in enumerate(unique_affiliations)}
+        self.affiliation_matrix[key]['column_map_label_to_nid'] = {elem:i for i,elem in enumerate(set([v for k,v in affil_edgelist]))}
  
         self.affiliation_matrix[key]['M'] = M
  
@@ -1107,8 +1291,8 @@ class MultiLayeredNetwork:
         i = []
         j = []
         for k,v in affil_edgelist:
-                i.append(self.nodemap[k])
-                j.append(self.affiliation_matrix[key]['column_nodemap'][v])
+                i.append(self.map_label_to_nid[k])
+                j.append(self.affiliation_matrix[key]['column_map_label_to_nid'][v])
  
         # sparse adjacency matrix for affiliations (work, school, region etc.)
         A = csr_matrix((np.ones(len(i)),(i,j)), shape=(self.N,M), dtype = 'int')
@@ -1117,8 +1301,8 @@ class MultiLayeredNetwork:
  
     def downcast_to_binary(self):
         """
-        Downcast all values in self.A to a binary value. Only 1s 
-        occur in the resulting matrix
+        Downcast all values in self.A to a binary value. Only 1s occur in the
+        resulting matrix.
         
         Returns:
             -------------
@@ -1126,45 +1310,190 @@ class MultiLayeredNetwork:
         """
         return self.A.astype(bool).astype(np.int16)
     
-    def to_intid(self, rinpersoon_ids):
+    def to_nid(self, labels):
         """
-        This function makes it easier to convert between CBS RINPERSOON ids
-        and the numbering of the matrix rows and columns. 
+        This function converts a label, or list of labels to their corresponding
+        NIDs
  
         Parameters:
             -----------
-            rinpersoon_ids : int or list, no default
-                CBS ids to convert to matrix ids, can be one single integer or a list of integers
+            labels : int or list, no default
+                A label or list of labels to convert to NIDs
         Returns:
             -----------
-            int_ids : int or list
-                integer ids corresponding to input
+            nids : int or list
+                NIDs corresponding to node ids of given labels
+         """
+ 
+        if type(labels) == int:
+            return self.map_label_to_nid[labels]
+        else:
+            return [self.map_label_to_nid[elem] for elem in labels]
+ 
+        
+    def to_label(self, nids):
+        """
+        This function converts an NID, or list of NIDs to their corresponding
+        labels
+ 
+        Parameters:
+            -----------
+            nids : int or list, no default
+                An NID or list of NIDs to convert to labels
+        Returns:
+            -----------
+            labels : int or list
+                labels corresponding to user ids of given NIDs
  
         """
  
-        if type(rinpersoon_ids) == int:
-            return self.nodemap[rinpersoon_ids]
+        if type(nids) == int:
+            return self.map_nid_to_label[nids]
         else:
-            return [self.nodemap[elem] for elem in rinpersoon_ids]
- 
+            return [self.map_nid_to_label[elem] for elem in nids]
+
+    def get_degrees(self, selected_nodes=None, selected_layers=None):
+        """
+        Calculate degree for selected nodes with selected layers.
+        """
+        if selected_layers is None:
+            selected_layers = list(self.layer_binary_repr.keys())
+        if selected_nodes is None:
+            selected_nodes = self.node_attributes["label"].tolist()
         
-    def to_cbsid(self, intids):
-            """
-            This function makes it easier to convert between CBS RINPERSOON ids
-            and the numbering of the matrix rows and columns. 
- 
-            Parameters:
-                -----------
-                intids : int or list, no default
-                    integer ids to convert to CBS ids, can be one single integer or a list of integers
-            Returns:
-                -----------
-                rinpersoon_ids : int or list
-                    CBS ids corresponding to input
- 
-            """
- 
-            if type(intids) == int:
-                return self.nodemap_back[intids]
+        selected_nodes = [self.nodemap.get(n) for n in selected_nodes]
+
+        res = {}
+
+        for layer in selected_layers:
+            if layer not in self.layer_adj:
+                _ = self.get_single_layer_adj_matrix(layer=layer,store=True)
+                res[layer] = dict(zip([self.nodemap_back.get(n) for n in selected_nodes],self.layer_adj[selected_nodes,:].T.sum()))
+
+        return res
+
+    def get_clustering_coefficient(self, selected_nodes=None, selected_layers=None, batchsize=100000):
+        """
+        Calculate clustering coefficient for selected nodes with selected layers.
+
+        Parameters:
+        -----------
+            selected_nodes : list, default None
+                which nodes to compute cc for, if None, use all
+            selected_layers : list of str
+                which layers to include in the computation
+            batchsize : int, default 100000
+                chunks in which to split up matrix multiplication bc of memory
+                issues
+
+        Returns:
+        --------
+            dict with first key "clustering_coefficient", then dict of label -> cc values
+            
+        """
+        if selected_layers is None:
+            selected_layers = list(self.layer_binary_repr.keys())
+        if selected_nodes is None:
+            selected_nodes = self.node_attributes["label"].tolist()
+        
+        selected_nodes = [self.to_nid(n) for n in selected_nodes]
+
+        if batchsize > len(selected_nodes):
+            batchsize = len(selected_nodes)
+
+        # obtain a copy of the sparse adjacency matrix such that each element
+        # A[i,j] contains the number of links between i and j
+        A = csr_matrix(self.A.shape, dtype=np.int64)
+
+        for layer in selected_layers:
+            if layer not in self.layer_adj:
+                _ = self.get_single_layer_adj_matrix(layer=layer,store=True)
+            A += self.layer_adj[layer]
+
+        # find all triangles
+        triangles = np.empty(0, dtype=np.int64)
+        # B = A @ A @ A contains the number of paths of length 3 between B[i,j]
+        # so B.diagonal() contains the number of triangles:
+        #     paths of length 3 between a node and itself
+        # // 2 as every path is found in both directions
+        # B will not fit in memory, so we do this in steps
+        for i in range(0, len(selected_nodes), batchsize):
+            A_ = A[selected_nodes[i:i+batchsize],:]
+            res = (A_ @ A @ A_.T).diagonal() // 2
+            triangles = np.concatenate((triangles, res))
+
+        A = A[selected_nodes,:]
+
+        # compute the denominator
+        # sum of neighbor degrees, over 2
+        l = comb(A.sum(axis=1), 2)
+        # sum of: neighbor degrees over two
+        r = csr_matrix((comb(A.data, 2), A.indices, A.indptr),(len(selected_nodes),self.N)).sum(axis=1)
+        P = np.array(l - r).T[0]
+
+        # we ensure that division by zero errors are correctly handled and nan/inf
+        # values are avoided
+
+        # triangles / P
+        clustering_coefficient = np.divide(triangles, P, out=np.zeros(len(selected_nodes)), where=P!=0)
+
+        return {
+            "clustering_coefficient": dict(zip([self.to_label(n) for n in selected_nodes],clustering_coefficient)),
+        }
+
+    def get_single_layer_adj_matrix(self,layer=None,store=False,storage_name=""):
+        """
+        Getting 0/1 adjacency matrix of a single layer or linktype.
+
+        Parameters:
+        -----------
+            layer: str, int or list[int]
+                if str, whole layer
+                if int, one linktype correspoding to linktype code
+                if list[int] several linktypes
+            store: bool, default False
+                store adjacency matrix in self.layer_adj
+            storage_name: str, default None
+                if layer is int or list, giving a name to the stored adjacency patrix e.g. parents
+
+        Returns
+        -------
+            scipy.sparse
+                0/1 adjacency matrix of shape (self.N,self.N)
+        """
+        if type(layer)==str:
+            lA = self.get_filtered_network(full_layers=[layer]).downcast_to_binary()
+            if store:
+                self.layer_adj[layer] = lA
+        elif type(layer)==int:
+            lA = self.get_filtered_network(layer_codes=[layer]).downcast_to_binary()
+            if store and storage_name!="" and storage_name not in self.layer_binary_repr:
+                self.layer_adj[storage_name] = lA
             else:
-                return [self.nodemap_back[elem] for elem in intids]
+                print("Please give a correct storage name that is nonempty and not one of the layer names!")
+        elif type(layer)==list:
+            lA = self.get_filtered_network(layer_codes=layer).downcast_to_binary()
+            if store and storage_name!="" and storage_name not in self.layer_binary_repr:
+                self.layer_adj[storage_name] = lA
+            else:
+                print("Please give a correct storage name that is nonempty and not one of the layer names!")
+        return lA
+
+    def get_supra_adj_matrix(self):
+        """
+        Decompressing the binary format into a supra-adjacency matrix.
+
+        Returns
+        -------
+            0/1 supra-adjacency matrix of shape (self.L*self.N,self.L*self.N)
+        """
+        # layer couplings
+        self.sA = kron(np.ones((self.L,self.L)),eye(self.N)) - eye(self.L * self.N)
+        # diagonal matrices
+        d = []
+        for l in self.layer_binary_repr:
+            if l not in self.layer_adj:
+                _ = self.get_single_layer_adj_matrix(layer=l,store=True)
+            d.append(self.layer_adj[l])
+        self.sA += block_diag(d)
+        return self.sA
