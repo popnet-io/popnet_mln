@@ -37,7 +37,7 @@ class MultiLayeredNetwork:
         colors_file = "",
         attribute_colnames = "",
         attribute_code_table = "",
-        verbose=True
+        verbose=False
     ):
         """
         This class contains methods and attributes to work with a large
@@ -304,7 +304,10 @@ class MultiLayeredNetwork:
                 adjacency_file = library_path + "/" + from_library + "/adjacency.npz"
                 # path to the pickle of the node attributes pickle with the current
                 # pandas version and desired from_library
-                node_attribute_file = library_path + "/"  + from_library + f"/attributes_{pd.__version__}.pkl"
+                if f"attributes_{pd.__version__}.pkl" in os.listdir(library_path + "/"  + from_library):
+                    node_attribute_file = library_path + "/"  + from_library + f"/attributes_{pd.__version__}.pkl"
+                else:
+                    node_attribute_file = library_path + "/"  + from_library + f"/attributes.csv.gz"
                 
                 return adjacency_file, node_attribute_file
         return None, None
@@ -679,8 +682,8 @@ class MultiLayeredNetwork:
         Parameters:
             -------------
             layers : list of int or str, default []
-                list of layer codes to include in returned object
-                see list of possible layer codes in self.layers
+                list of layers to include in returned object
+                see list of possible layers in self.layers
 
             selected_nodes : list of int, default None
                 if None, return all nodes in the parent object
@@ -727,17 +730,25 @@ class MultiLayeredNetwork:
  
         if len(layers)>0:
             # adding up the binary codes for the full layers from the argument
-            binary_repr = self.layers.set_index("layer")["binary"].sum()
+            binary_repr = sum([self.layers.set_index("layer").loc[l]["binary"] for l in layers])
+            print("Binary repr",binary_repr)
             # select corresponding edges
             selection_A.data = selection_A.data & binary_repr
             # compress sparse matrix
             selection_A.eliminate_zeros()
- 
-        return MultiLayeredNetwork(
+
+        f = MultiLayeredNetwork(
             adjacency_matrix = selection_A,
             node_attribute_dataframe = selection_node_attributes,
             **self._to_pass
         )
+
+        # TODO make this more elegant! Why is this not happening by itself?
+        f.layers = self.layers
+        f.layers_dict = self.layers_dict
+        f.max_bin_linktype = self.max_bin_linktype
+ 
+        return f
 
     def report_time(self, message = "", init=False):
         """
@@ -805,22 +816,23 @@ class MultiLayeredNetwork:
             
             # convert all unique binary linktypes to their labels
             link_dict = {}
-            for link in edgelist['binary_linktype'].unique():
+            for link in edgelist["binary"].unique():
                 link_dict[link] = self.decompose_binary_linktype_2(link)
             # self.report_time(message = "Unfolded binary link identifiers.")
             # print(edgelist.head())
 
 
             # get pairs (binary_linktype, label) of each link
-            edgelist["binary"] = edgelist["binary"].map(link_dict)
+            edgelist["layer_label"] = edgelist["binary"].map(link_dict)
             # self.report_time(message = "Mapped binary link identifiers.")
             # print(edgelist.head())
 
             # explode values and divide pairs over binary_linktype and linktype column
-            edgelist = edgelist.explode("binary")
+            edgelist = edgelist.explode("layer_label")
             # self.report_time(message = "Exploded binary link identifiers.")
             # print(edgelist.head())
-            edgelist["binary"], edgelist["linktype"] = edgelist["binary"].str
+            edgelist["layer"], edgelist["label"] = edgelist["layer_label"].str
+            edgelist.drop(["binary","layer_label"],axis=1,inplace=True)
             # self.report_time(message = "Adding that to dataframe?")
             # print(edgelist.head())
         
@@ -1007,7 +1019,7 @@ class MultiLayeredNetwork:
             list(str)
                 list of string linktypes corresponding to integer value
         """
-        return [self.convert_linktype(2**i, input_type='binary', output_type='name') for i in range(self.max_bin_linktype) if num&(2**i)>0]
+        return [self.convert_linktype(2**i, input_type='binary', output_type='name') for i in range(self.max_bin_linktype) if int(num)&(2**i)>0]
     
     def decompose_binary_linktype_2(self,num):
         """
@@ -1024,7 +1036,8 @@ class MultiLayeredNetwork:
             list(str)
                 list of string linktypes corresponding to integer value
         """
-        return [(i, self.convert_linktype(2**i, input_type='binary', output_type='name')) for i in range(self.max_bin_linktype) if num&(2**i)>0]
+        # TODO check it thoroughly
+        return [(self.convert_linktype(2**i, input_type='binary', output_type='layer'), self.convert_linktype(2**i, input_type='binary', output_type='name')) for i in range(self.max_bin_linktype) if int(num)&(2**i)>0]
     
     def export_graph(self, file_name):
         """
