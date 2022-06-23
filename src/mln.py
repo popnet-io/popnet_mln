@@ -433,7 +433,7 @@ class MultiLayeredNetwork:
             # self.verboseprint("Making self.layers...")
             # Get largest binary linktype value
             nr_links = len(np.unique(linktypes))
-            self.max_bin_linktype = nr_links ** 2
+            self.max_bin_linktype = 2**nr_links
             
             # Generate based on binary linktypes in A
             columns = ["layer", "name", "binary"]
@@ -1074,7 +1074,7 @@ class MultiLayeredNetwork:
                 edgelist.to_csv(file_name, index=False)
             else:
                 edgelist.to_csv(file_name, index=False, compression = 'gzip')
-        elif extension == "graphml":
+        elif extension == ".graphml":
             if self.igraph is None :
                 self.igraph = self.to_igraph()
             self.igraph.write_graphml(file_name)
@@ -1084,7 +1084,7 @@ class MultiLayeredNetwork:
     def export_node_attributes(self, file_name,):
         """
         Write self.node_attributes to file to .csv or .csv.gz file
-        
+        graphml
         Parameters:
             -----------
             file_name : str
