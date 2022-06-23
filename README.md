@@ -13,7 +13,7 @@ Contact:
 
 ## MultiLayeredNetwork class
 
-The `MultLayeredNetwork` class from `src/mln.py` contains methods and attributes to work with a large
+The `MultiLayeredNetwork` class from `src/mln.py` contains methods and attributes to work with a large
 multilayer network using different edge types and layers efficiently.
 
 The network has to be unweighted, but can be directed.
@@ -52,9 +52,9 @@ should be found in the new instance that represents the subgraph.
 
 The adjacency matrix contains integers that encode linktypes if viewed
 as binary numbers. Each possible linktype is assigned an integer of the
-form 2**i. For example, if both type i and type j edge is present
+form 2\**i. For example, if both type i and type j edge is present
 between two people, then the corresponding value in self.A would be
-2**i+2**j. It means that we can test for a certain edgetype using
+2\**i+2\**j. It means that we can test for a certain edgetype using
 bitwise AND operation very cheaply. E.g. a certain element of self.A is
 7, then 7=1+2+4 which means that edgetypes 0,1, and 2 are present
 between the two people, and 7&2 = 2 in Python (it behaves like a mask
