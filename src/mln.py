@@ -1019,7 +1019,7 @@ class MultiLayeredNetwork:
             list(str)
                 list of string linktypes corresponding to integer value
         """
-        return [self.convert_linktype(2**i, input_type='binary', output_type='name') for i in range(self.max_bin_linktype) if int(num)&(2**i)>0]
+        return [self.convert_linktype(2**i, input_type='binary', output_type='name') for i in range(int(np.log2(self.max_bin_linktype))) if int(num)&(2**i)>0]
     
     def decompose_binary_linktype_2(self,num):
         """
@@ -1037,7 +1037,7 @@ class MultiLayeredNetwork:
                 list of string linktypes corresponding to integer value
         """
         # TODO check it thoroughly
-        return [(self.convert_linktype(2**i, input_type='binary', output_type='layer'), self.convert_linktype(2**i, input_type='binary', output_type='name')) for i in range(self.max_bin_linktype) if int(num)&(2**i)>0]
+        return [(self.convert_linktype(2**i, input_type='binary', output_type='layer'), self.convert_linktype(2**i, input_tdecomposeype='binary', output_type='name')) for i in range(int(np.log2(self.max_bin_linktype))) if int(num)&(2**i)>0]
     
     def export_graph(self, file_name):
         """
