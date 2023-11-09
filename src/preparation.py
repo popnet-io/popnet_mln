@@ -114,10 +114,10 @@ class RawCSVtoMLN:
             self.layers.to_csv(self.layer_conf["output"],index=False,header=True)
             self.layer_conf["file"] = self.layer_conf["output"]
         
-        # print("Done.")
-        # print("Reading " + self.layer_conf["file"] + "...")
-        # self.layers = pd.read_csv(self.layer_conf["file"], index_col = None, header=0)
-        # print("Layer dataframe",self.laers.head(),self.layers.columns,end="\n")
+        print("Done.")
+        print("Reading " + self.layer_conf["file"] + "...")
+        self.layers = pd.read_csv(self.layer_conf["file"], index_col = None, header=0)
+        print("Layer dataframe",self.layers.head(),self.layers.columns,end="\n")
 
     def init_raw_layers_from_edges(self):
         """
@@ -302,7 +302,7 @@ class RawCSVtoMLN:
             print(f"\tStarting adjacency function for {num_edges} edges...")
             # contains values of binary_linktype / 0
             if num_edges>0:
-                A = self.adjacency_matrix(self.edgelist[selection], binary, symmetrize=layer in self.edge_conf["symmetrize"])
+                A = self.adjacency_matrix(self.edgelist[selection], binary, symmetrize=layer in self.layer_conf["symmetrize"])
                 self.A += A
                 print(f"Adding {A.nnz} edges.")
                 # cleaning memory of large unnecessary objects
