@@ -90,7 +90,8 @@ class RawCSVtoMLN:
                 print("\tRenaming layer dataframe columns...")
                 if type(self.layer_conf["colmap"]) == str:
                     self.layer_conf["colmap"] = json.load(open(self.layer_conf["colmap"]))
-                self.layers.rename(columns = self.layer_conf["colmap"])
+                print(json.dumps(self.layer_conf["colmap"],indent="\t\t"))
+                self.layers.rename(columns = self.layer_conf["colmap"], inplace = True)
 
             print("\tAdding binary representation, groups and long labels...")
             # creating different 2**i numbers for all linktypes for binary encoding
