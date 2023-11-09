@@ -1,0 +1,30 @@
+{
+    "node_conf": {
+        "input_folder_prefix": "test_data/dummy_popnet",
+        "files": ["popnet_nodelist.csv"],
+        "sep": ",",
+        "colmap":"",
+        "output": "nodes.csv.gz"
+    },
+    "edge_conf": {
+        "input_folder_prefix": "test_data/dummy_popnet",
+        "files": ["popnet_edgelist.csv"],
+        "colmap": {"linktype":"layer"},
+        "sep": ",",
+        "output": "edges.npz",
+        "symmetrize": "false"
+    },
+    "layer_conf": {
+        "input_folder_prefix": "",
+        "raw_file": "",
+        "file": "",
+        "colmap":"",
+        "output": "layers.csv",
+        "symmetrize": [],
+        "symmetrize_all": "True",
+        "raw_sep": ",",
+        "sep": ",",
+        "colors": ""
+    },
+    "output_folder": "test_save"
+}
