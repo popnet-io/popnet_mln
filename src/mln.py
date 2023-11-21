@@ -625,8 +625,13 @@ class MultiLayerNetwork:
             # print(edgelist.head())
             # self.report_time(message = "Adding that to dataframe?")
             # print(edgelist.head())
+        elif edge_attribute is None:
+            edgelist = pd.DataFrame(edges, columns = ["source", "target"])
+            # mapping back edges to the original labels
+            edgelist["source"] = edgelist["source"].map(self.to_label)
+            edgelist["target"] = edgelist["target"].map(self.to_label)
         else:
-            raise ValueError(f"Invalid edge_attribute '{edge_attribute}'. Please choose from 'binary', 'layer', 'label' or 'weight'.")
+            raise ValueError(f"Invalid edge_attribute '{edge_attribute}'. Please choose from 'binary', 'layer', 'label' or 'weight' or None.")
         
         return edgelist
     
