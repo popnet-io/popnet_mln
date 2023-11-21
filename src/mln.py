@@ -331,6 +331,8 @@ class MultiLayerNetwork:
                 raise ValueError("No group information found in self.layers. Please add a column called 'group' to self.layers.")
             # get layers corresponding to group
             for g in groups_selected:
+                if g not in self.layers["group"].unique().tolist():
+                    raise ValueError(f"Invalid group {g}. Please choose from {self.layers['group'].unique().tolist()}.")
                 layers_selected += self.layers[self.layers["group"] == g][layer_type].tolist()
 
         # if there is any node selection, then decrease matrix size and grab the
@@ -358,6 +360,9 @@ class MultiLayerNetwork:
             nodes_selected = self.nodes
  
         if len(layers_selected)>0:
+            for l in layers_selected:
+                if l not in self.layers[layer_type].tolist():
+                    raise ValueError(f"Invalid layer {l} for layer type {layer_type}. Please choose from {self.layers[layer_type].tolist()}.")
             # adding up the binary codes for the full layers from the argumentif len(layers)>0:
             # based on type of layer value:
             binary_repr = sum([self.layer_conversion_dict[layer_type + "_to_binary"][layer] for layer in layers_selected])
@@ -378,9 +383,14 @@ class MultiLayerNetwork:
         if layer_type not in ["label", "layer", "binary", "group"]:
             raise ValueError(f"Invalid layer_type {layer_type}. Please choose from 'label' or 'layer' or 'binary'.")
         
+        if layer not in self.layers[layer_type].tolist():
+            raise ValueError(f"Invalid layer {layer} for layer type {layer_type}. Please choose from {self.layers[layer_type].tolist()}.")
+        
         if layer_type == "group":
             if "group" not in self.layers.columns:
                 raise ValueError("No group information found in self.layers. Please add a column called 'group' to self.layers.")
+            if layer not in self.layers["group"].tolist():
+                raise ValueError(f"Invalid group {layer}. Please choose from {self.layers['group'].unique().tolist()}.")
             # get layers corresponding to group
             layers = self.layers[self.layers["group"] == layer]["layer"].unique().tolist()
             # get corresponding binary representation
