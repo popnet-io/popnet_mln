@@ -635,7 +635,7 @@ class MultiLayerNetwork:
         
         return edgelist
     
-    def to_igraph(self, directed=True, edge_attributes=True, node_attributes=False, replace_igraph=False):
+    def to_igraph(self, directed=True, edge_attributes=True, node_attributes=False, replace_igraph=False, edge_attribute_type="binary"):
         """
         This function returns an igraph object of the sparsematrix stored in
         self.A. Edge attributes (link types) and node attributes (from
@@ -674,15 +674,21 @@ class MultiLayerNetwork:
         else:
             g = ig.Graph.Adjacency(self.A.sign(), mode=mode)
         
-        if edge_attributes:     
-            # obtain and add (human readable) link types
-            layer_dict = {}
-            for layer in set(g.es["layer"]):
-                layer_dict[layer] = self.convert_layer_binary_to_list(layer, output_type="layer")
+        if edge_attributes:
+            if edge_attribute_type == "binary":     
+                # obtain and add (human readable) link types
+                layer_dict = {}
+                for layer in set(g.es["layer"]):
+                    layer_dict[layer] = self.convert_layer_binary_to_list(layer, output_type="layer")
 
-            # rewrite link types to human readable
-            g.es["layer"] = [layer_dict[x] for x in g.es["layer"]]
-            
+                # rewrite link types to human readable
+                g.es["layer"] = [layer_dict[x] for x in g.es["layer"]]
+            elif edge_attribute_type == "weight":
+                g.es["weight"] = g.es["layer"]
+                del g.es["layer"]
+            else:
+                raise ValueError(f"Invalid edge_attribute_type '{edge_attribute_type}'. Please choose from 'binary' or 'weight'.")
+                
         # add node attributes to graph from self.node_attributes
         if node_attributes:
             for col_name in self.nodes.columns:
@@ -826,7 +832,13 @@ class MultiLayerNetwork:
         return [self.convert_layer_representation(2**i, input_type='binary', output_type=output_type)\
                  for i in range(self.layers.index[-1]) if int(num)&(2**i)>0]
     
-    def save_to_graphml(self, file_name, directed = True, edge_attributes = True, node_attributes = False, overwrite = False):
+    def save_to_graphml(self, 
+                        file_name, 
+                        directed = True, 
+                        edge_attributes = True, 
+                        node_attributes = False, 
+                        overwrite = False, 
+                        edge_attribute_type="binary"):
         _, extension = os.path.splitext(file_name)
 
         if extension == ".graphml":
@@ -834,7 +846,8 @@ class MultiLayerNetwork:
                 self.igraph = self.to_igraph(
                     node_attributes=node_attributes,
                     edge_attributes=edge_attributes,
-                    directed=directed
+                    directed=directed,
+                    edge_attribute_type=edge_attribute_type
                 )
             else:
                 raise Warning("Warning: igraph object already exists, not creating a new one - using it as you've created it earlier." +\
