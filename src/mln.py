@@ -1087,7 +1087,7 @@ class MultiLayerNetwork:
  
         self.affiliation_matrix[key]['A'] = A
  
-    def to_binary_adjacency(self):
+    def to_binary_adjacency(self, dtype='int64'):
         """
         Downcast all values in self.A to a binary value. Only 1s occur in the
         resulting matrix.
@@ -1096,7 +1096,10 @@ class MultiLayerNetwork:
             -------------
                 A : sparsegraph A which is a downcasted version of self.A
         """
-        return self.A.sign()
+        if dtype != 'int64':
+            return self.A.sign().astype(dtype)
+        else:
+            return self.A.sign()
     
     def to_id(self, labels):
         """
