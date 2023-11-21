@@ -766,7 +766,6 @@ class MultiLayerNetwork:
             if edge_attribute_type == "weight":
                     for s, t, d in g.edges(data=True):
                         d["weight"] = g[s][t]["weight"]
-                        d.pop("weight", None)
             elif edge_attribute_type == "binary":
                 if edge_attributes:
                     for s, t, d in g.edges(data=True):
