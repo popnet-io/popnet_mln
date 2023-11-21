@@ -973,13 +973,20 @@ class MultiLayerNetwork:
             layer_file = path + "layers.csv"
         else:
             layer_file = kwargs["layer_file"]
+        if "codebook_file" not in kwargs:
+            codebook_file = path + "codebook.csv"
         
         self.export_edges(edge_file)
         self.export_nodes(node_file)
         self.export_layers(layer_file)
+        self.export_codebook(codebook_file)
 
     def export_layers(self, file_name):
         self.layers.to_csv(file_name, index=False, header=True)
+
+    def export_codebook(self, file_name):
+        if self.codebook is not None:
+            self.codebook.to_csv(file_name, index=False, header=True)
         
     def get_egonetwork(self, ego_label, depth=1, return_list=False, ignore_limit=False):
         """
