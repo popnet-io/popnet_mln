@@ -704,7 +704,13 @@ class MultiLayerNetwork:
         
         return g
  
-    def to_networkx(self, directed = True, edge_attributes = True, node_attributes = False, ignore_limit = False):
+    def to_networkx(self, 
+                    directed = True, 
+                    edge_attributes = True, 
+                    node_attributes = False, 
+                    edge_attribute_type = "binary",
+                    layer_type = "layer",
+                    ignore_limit = False):
         """
         This function returns a networkx object of the sparsematrix stored in
         self.A. Edge attributes (link types) and node attributes (from
@@ -740,8 +746,8 @@ class MultiLayerNetwork:
         if directed: graph_type = nx.DiGraph
         else: graph_type = nx.Graph
  
-        # create igraph graph
-        g = nx.from_scipy_sparse_matrix(self.A, create_using=graph_type)
+        # create networkx graph
+        g = nx.from_scipy_sparse_array(self.A, create_using=graph_type)
  
         # add remaining attributes
         if node_attributes:
@@ -756,19 +762,24 @@ class MultiLayerNetwork:
         # obtain and add (human readable) link types use dict for optimization
         link_dict = {}
         
-        for s, t, d in g.edges(data=True):
-            if edge_attributes:
-                weight = g[s][t]["weight"]
- 
-                if weight in link_dict:
-                    g[s][t]["link_types"] = link_dict[weight]
-                else:
-                    link_types = self.convert_layer_binary_to_list(weight)
-                    link_dict[weight] = link_types
-                    g[s][t]["link_types"] = link_types
- 
-            # remove weights
-            d.pop("weight", None)
+        if edge_attributes:
+            if edge_attribute_type == "weight":
+                    for s, t, d in g.edges(data=True):
+                        d["weight"] = g[s][t]["weight"]
+                        d.pop("weight", None)
+            elif edge_attribute_type == "binary":
+                if edge_attributes:
+                    for s, t, d in g.edges(data=True):
+                        weight = g[s][t]["weight"]
+        
+                        if weight in link_dict:
+                            g[s][t]["layer"] = link_dict[weight]
+                        else:
+                            link_types = self.convert_layer_representation(weight,input_type="binary",output_type=layer_type)
+                            link_dict[weight] = link_types
+                            g[s][t]["layer"] = link_types
+                        # remove weights
+                        d.pop("weight", None)
  
         return g
     
