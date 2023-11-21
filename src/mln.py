@@ -775,7 +775,7 @@ class MultiLayerNetwork:
                         if weight in link_dict:
                             g[s][t]["layer"] = link_dict[weight]
                         else:
-                            link_types = self.convert_layer_representation(weight,input_type="binary",output_type=layer_type)
+                            link_types = self.convert_layer_binary_to_list(weight,output_type=layer_type)
                             link_dict[weight] = link_types
                             g[s][t]["layer"] = link_types
                         # remove weights
