@@ -1070,8 +1070,8 @@ class MultiLayerNetwork:
  
         M = len(unique_affiliations)
  
-        self.affiliation_matrix[key]['column_to_label'] = {i:elem for i,elem in enumerate(unique_affiliations)}
-        self.affiliation_matrix[key]['column_to_id'] = {elem:i for i,elem in enumerate(set([v for k,v in affil_edgelist]))}
+        self.affiliation_matrix[key]['column_id_to_label'] = {i:elem for i,elem in enumerate(unique_affiliations)}
+        self.affiliation_matrix[key]['column_label_to_id'] = {elem:i for i,elem in enumerate(unique_affiliations)}
  
         self.affiliation_matrix[key]['M'] = M
  
@@ -1080,7 +1080,7 @@ class MultiLayerNetwork:
         j = []
         for k,v in affil_edgelist:
                 i.append(self.to_id(k))
-                j.append(self.affiliation_matrix[key]['column_to_id'][v])
+                j.append(self.affiliation_matrix[key]['column_label_to_id'][v])
  
         # sparse adjacency matrix for affiliations (work, school, region etc.)
         A = csr_matrix((np.ones(len(i)),(i,j)), shape=(self.N,M), dtype = 'int')
