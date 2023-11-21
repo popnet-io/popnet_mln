@@ -1183,7 +1183,7 @@ class MultiLayerNetwork:
 
         return dict(zip([self.to_label(n) for n in selected_nodes],clustering_coefficient))
 
-    def get_supra_adj_matrix(self):
+    def get_supra_adj_matrix(self,dtype='int64'):
         """
         Decompressing the binary format into a supra-adjacency matrix.
 
@@ -1201,4 +1201,8 @@ class MultiLayerNetwork:
             else:
                 d.append(self.layer_adjacency_matrix[l])
         self.sA += block_diag(d)
+
+        if dtype!='int64':
+            self.sA = self.sA.astype(dtype)
+
         return self.sA
