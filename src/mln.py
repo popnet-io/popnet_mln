@@ -1087,7 +1087,7 @@ class MultiLayerNetwork:
  
         self.affiliation_matrix[key]['A'] = A
  
-    def to_binary_adjacency(self, dtype='int64'):
+    def get_binary_adjacency(self, dtype='int64'):
         """
         Downcast all values in self.A to a binary value. Only 1s occur in the
         resulting matrix.
