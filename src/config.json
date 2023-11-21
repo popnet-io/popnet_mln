@@ -26,5 +26,6 @@
         "sep": ",",
         "colors": ""
     },
-    "output_folder": "test_save"
+    "output_folder": "test_save",
+    "overwrite": "True"
 }

@@ -2,9 +2,6 @@
 import os
 os.chdir(os.path.dirname(os.path.abspath(__file__)) + '/..')
  
-# print current working dir
-print("Current working directory: ", os.getcwd())
-
 # importing libraries
 import pandas as pd
 from pandas.io.parsers import read_csv
@@ -42,6 +39,7 @@ class MultiLayerNetwork:
         load_from_config = False,
         config_path = "",
         verbose = False,
+        adjacency_element = "binary",
         **kwargs
     ):
         """
@@ -137,19 +135,21 @@ class MultiLayerNetwork:
             config = json.load(open(config_path))
             preparer = RawCSVtoMLN(**config)
             preparer.init_all()
-            self.nodes, self.A, self.layers = preparer.nodes, preparer.edges, preparer.layers
+            self.nodes, self.A, self.layers = preparer.nodes, preparer.A, preparer.layers
         else:
             self.nodes, self.A, self.layers = nodes, edges, layers
 
         self.map_id_to_label = dict(zip(self.nodes["id"],self.nodes["label"]))
         self.map_label_to_id = dict(zip(self.nodes["label"],self.nodes["id"]))
         self.N = self.A.shape[0]
+        self.L = self.layers.shape[0]
 
         self.init_layer_dict()
 
         # helper variables for later use
         self.igraph = None
-        self.layer_adjacency_matrices = {}
+        self.layer_adjacency_matrix = {}
+        self.group_adjacency_matrix = {}
 
         # set kwargs as attributes
         for k,v in kwargs.items():
@@ -170,7 +170,7 @@ class MultiLayerNetwork:
             "layers" : self.layers,
             "codebook" : self.codebook,
             "verbose" : self.verbose,
-            "layers_dict" : self.layers_dict,
+            "layers_dict" : self.layer_conversion_dict,
             "max_bin_linktype" : self.max_bin_linktype
         }
  
@@ -255,7 +255,7 @@ class MultiLayerNetwork:
         layer_to_bin = dict(zip(layer, binary))
         layer_to_label = dict(zip(layer, label))
         
-        self.layers_dict = {
+        self.layer_conversion_dict = {
             'binary_to_layer' : bin_to_layer,
             'binary_to_label' : bin_to_label,
             'layer_to_label' : layer_to_label,
@@ -285,18 +285,22 @@ class MultiLayerNetwork:
                     self.codebook = pd.read_csv(self.codebook, index_col=None, header=0)
                 except:
                     raise ValueError("Not a valid codebook file.")        
-
-    def to_undirected(self):
-        return
     
-    def get_filtered_network(self, layers=[], selected_nodes=None, use_label=True):
+    def get_filtered_network(
+            self, 
+            nodes_selected=None, 
+            layers_selected=[], 
+            groups_selected=[], 
+            node_type="label",
+            layer_type="label"
+            ):
         """
-        Returns MultiLayeredNetwork based on edge and node filtering.
+        Returns MultiLayerNetwork based on edge and node filtering.
         
         Possibilities:
  
         1. Edge filtering: defining a list of layers through the kwarg `layers`.
-           E.g. `mln.get_edgelist(full_layers = ["family", "household"])`
+           E.g. `mln.get_edgelist(layers = ["parent", "household"])`
  
         2. Node filtering: given a list of labels, select subgraph spanned by
            those nodes, consisting only of selected edgetypes.
@@ -319,45 +323,102 @@ class MultiLayerNetwork:
                 the parent object
         """
 
+        if layer_type not in ["label", "layer"]:
+            raise ValueError(f"Invalid layer_type {layer_type}. Please choose from 'label' or 'layer'.")
+        
+        if len(groups_selected)>0:
+            if "group" not in self.layers.columns:
+                raise ValueError("No group information found in self.layers. Please add a column called 'group' to self.layers.")
+            # get layers corresponding to group
+            for g in groups_selected:
+                layers_selected += self.layers[self.layers["group"] == g]["layer"].tolist()
+
         # if there is any node selection, then decrease matrix size and grab the
         # relevant rows from the node attributes table
-        if selected_nodes is not None: # and len(selected_nodes) > 0:
+        if nodes_selected is not None: # and len(selected_nodes) > 0:
             # remove duplicates from list
-            selected_nodes = np.unique(selected_nodes)
+            nodes_selected = np.unique(nodes_selected)
             # mapping label to node ids, creating node mapping
-            if use_label == True:
-                selected_nodes = np.array([self.to_id(i) for i in selected_nodes])
+            if node_type == "label":
+                nodes_selected = np.array([self.to_id(i) for i in nodes_selected])
+            elif node_type == "id":
+                nodes_selected = np.array(nodes_selected)
+            else:
+                raise ValueError(f"Invalid node_type {node_type}. Please choose from 'label' or 'id'.")
             
             # creating True/False mask for faster selection
             idx = np.array(np.zeros(self.N,dtype=bool))
-            idx[selected_nodes] = True
+            idx[nodes_selected] = True
             # slicing the adjacency matrix
-            selection_A = self.A[idx,:][:,idx]
+            A_selected = self.A[idx,:][:,idx]
             # slicing the attribute table
-            selection_nodes = self.nodes.iloc[selected_nodes].reset_index(drop=True)
+            nodes_selected = self.nodes.iloc[nodes_selected].reset_index(drop=True)
         else:
-            selection_A = deepcopy(self.A)
-            selection_nodes = self.nodes
+            A_selected = deepcopy(self.A)
+            nodes_selected = self.nodes
  
-        if len(layers)>0:
+        if len(layers_selected)>0:
             # adding up the binary codes for the full layers from the argumentif len(layers)>0:
             # based on type of layer value:
-            binary_repr = sum([self.layers.set_index("layer").loc[l]["binary"] for l in layers])
-            print("Binary repr",binary_repr)
+            binary_repr = sum([self.layer_conversion_dict[layer_type + "_to_binary"][layer] for layer in layers_selected])
             # select corresponding edges
-            selection_A.data = selection_A.data & binary_repr
+            A_selected.data = A_selected.data & binary_repr
             # compress sparse matrix
-            selection_A.eliminate_zeros()
+            A_selected.eliminate_zeros()
 
         f = MultiLayerNetwork(
-            nodes = selection_nodes,
-            edges = selection_A
+            nodes = nodes_selected,
+            edges = A_selected,
             **self._to_pass
         )
  
         return f
+    
+    def get_layer_adjacency_matrix(self, layer, layer_type = 'layer', store = False):
+        if layer_type not in ["label", "layer", "binary", "group"]:
+            raise ValueError(f"Invalid layer_type {layer_type}. Please choose from 'label' or 'layer' or 'binary'.")
+        
+        if layer_type == "group":
+            if "group" not in self.layers.columns:
+                raise ValueError("No group information found in self.layers. Please add a column called 'group' to self.layers.")
+            # get layers corresponding to group
+            layers = self.layers[self.layers["group"] == layer]["layer"].unique().tolist()
+            # get corresponding binary representation
+            binary_repr = sum([self.layer_conversion_dict["layer_to_binary"][layer] for layer in layers])
+        else:
+            # get binary layer value if it's not already given in binary
+            if layer_type != "binary":
+                binary_repr = self.layer_conversion_dict[layer_type + "_to_binary"][layer]
+            else:
+                binary_repr = layer
 
-    def get_aggregated_network(self, aggregation_column=None):
+        # get layer value if it's not already given in layer
+        if layer_type != "layer":
+            l = self.layer_conversion_dict[layer_type + "_to_layer"][layer]
+        else:
+            l = layer
+
+        # check if layer is already stored in layer/group adjacency matrices
+        if layer_type!="group" and l in self.layer_adjacency_matrix:
+            return self.layer_adjacency_matrix[l]
+        if layer_type=="group" and layer in self.group_adjacency_matrix:
+            return self.group_adjacency_matrix[layer]
+
+        # if it's not already stored, create it
+        A_layer = deepcopy(self.A)
+        A_layer.data = A_layer.data & binary_repr
+        A_layer.eliminate_zeros()
+        A_layer = A_layer.sign()
+
+        # store if necessary
+        if store:
+            if layer_type == "group":
+                self.group_adjacency_matrix[layer] = A_layer
+            else:
+                self.layer_adjacency_matrix[l] = A_layer        
+        return A_layer
+
+    def get_aggregated_network(self, aggregation_column=None, keep_layers = False):
         """
         Return an aggregated network over a certain column in self.nodes.
         
@@ -367,7 +428,7 @@ class MultiLayerNetwork:
                 the column in self.nodes based on which the edges should be aggregated
             -------------
         """
-        selection_A = deepcopy(self.A)
+        A_selected = deepcopy(self.A)
 
         if not aggregation_column in self.nodes.columns:
             raise ValueError(f"Column {aggregation_column} not found in self.nodes. Possible candidates are: ", self.nodes.columns)
@@ -391,25 +452,25 @@ class MultiLayerNetwork:
         ft = csr_matrix((np.ones(len(i)),(i,j)), shape=(self.N,len(grp_counts.keys())), dtype = 'int').T
 
        
-        grouped_A = ft.dot(selection_A.sign())
+        grouped_A = ft.dot(A_selected.sign())
         grouped_A_2 = grouped_A.dot(ft.T)
         grouped_A_2 = csr_matrix(grouped_A_2)
 
-        selection_nodes = pd.DataFrame(data={
+        nodes_selected = pd.DataFrame(data={
                 'label' : uniques, 
                 'weight' : [grp_counts[i] for i in range(0,len(uniques))]}, 
                 index=[i for i in range(0,len(uniques))]
         )
-        selection_nodes.reset_index(inplace=True)
-        selection_nodes.rename(columns={'index' : 'id'}, inplace=True)
+        nodes_selected.reset_index(inplace=True)
+        nodes_selected.rename(columns={'index' : 'id'}, inplace=True)
 
         # add data related to particular aggregation level
         aggregation_nodes = self.nodes.groupby([aggregation_column]).head(1)[[c for c in self.nodes.columns if aggregation_column.split('_')[0] in c]]
-        selection_nodes = selection_nodes.merge(aggregation_nodes, left_on=['label'], right_on=[aggregation_column], how='left')
+        nodes_selected = nodes_selected.merge(aggregation_nodes, left_on=['label'], right_on=[aggregation_column], how='left')
         
         f = MultiLayerNetwork(
             edges = grouped_A_2,
-            nodes = selection_nodes,
+            nodes = nodes_selected,
             **self._to_pass
         )
 
@@ -426,10 +487,10 @@ class MultiLayerNetwork:
         }
 
         f.layers = selection_layers
-        f.layers_dict = selection_layers_dict
+        f.layer_conversion_dict = selection_layers_dict
         # The nodes have changed, therefore new mappings for to_nid and to_label are passed.
-        f.map_label_to_id = selection_nodes[["label", "id"]].set_index('label').to_dict()['id']
-        f.map_id_to_label = selection_nodes[["label", "id"]].set_index('id').to_dict()['label']
+        f.map_label_to_id = dict(zip(f.nodes["label"],f.nodes["id"]))
+        f.map_id_to_label = dict(zip(f.nodes["id"],f.nodes["label"]))
 
         return f
     
@@ -458,7 +519,7 @@ class MultiLayerNetwork:
                 print(message + "\n" + f"Time elapsed: {elapsed:.5f} seconds.")
             self.tic = datetime.now().timestamp()
  
-    def get_edgelist(self, without_layers = True, with_weights=False):
+    def get_edgelist(self, edge_attribute = "binary"):
         """
         This function returns a  pandas dataframe containing the edge list
         representing sparse matrix stored in self.A. 
@@ -477,44 +538,45 @@ class MultiLayerNetwork:
             edgelist : pandas dataframe containig the edge list representing self.A
         """
         # self.report_time(init=True)
+
         # getting edges and binary linktypes
         edges = np.array(self.A.nonzero()).T
         weights = np.array([self.A.data]).T
         # self.report_time(message = "Getting data from sparse matrix.")
-        if without_layers:
-            if with_weights:
-                # combine edges and weights
-                edges_with_weights = np.concatenate((edges, weights), axis=1)
-                edgelist = pd.DataFrame(edges_with_weights, columns = ["source", "target", "weight"])
-            else:
-                edgelist = pd.DataFrame(edges, columns = ["source", "target"])
-            # self.report_time(message = "Creating edgelist dataframe.")
-        else:
-            edgelist = pd.DataFrame(np.concatenate((edges, weights), axis=1))
+        if edge_attribute == "binary" or edge_attribute=="weight":
+            # combine edges and weights
+            edges_with_weights = np.concatenate((edges, weights), axis=1)
+            edgelist = pd.DataFrame(edges_with_weights, columns = ["source", "target", edge_attribute])
+
+            # mapping back edges to the original labels
+            edgelist["source"] = edgelist["source"].map(self.to_label)
+            edgelist["target"] = edgelist["target"].map(self.to_label)
+
+        elif edge_attribute == "layer":
+            edges_with_weights = np.concatenate((edges, weights), axis=1)
+            edgelist = pd.DataFrame(edges_with_weights, columns = ["source", "target", "binary"])
             # self.report_time(message = "Creating edgelist dataframe.")
     
             # mapping back edges to the original labels
-            edgelist[0] = edgelist[0].map(self.to_label)
-            edgelist[1] = edgelist[1].map(self.to_label)
+            edgelist["source"] = edgelist["source"].map(self.to_label)
+            edgelist["target"] = edgelist["target"].map(self.to_label)
             # self.report_time(message = "Remapping node labels.")
     
             # add colnames and (human) readable link types
-            # if an edge has multiple linktypes, it is listed multiple times with the linktype code
-            edgelist.columns = ["source", "target", "binary"]
-            
+            # if an edge has multiple linktypes, it is listed multiple times with the linktype code          
             # convert all unique binary linktypes to their labels
             link_dict = {}
             for link in edgelist["binary"].unique():
-                link_dict[link] = self.decompose_binary_linktype(link)
+                link_dict[link] = self.convert_layer_binary_to_list(link, output_type="layer")
             # self.report_time(message = "Unfolded binary link identifiers.")
             # print(edgelist.head())
 
-
             # get pairs (binary_linktype, label) of each link
-            edgelist["layer_label"] = edgelist["binary"].map(link_dict)
+            edgelist["layer"] = edgelist["binary"].map(link_dict)
             # self.report_time(message = "Mapped binary link identifiers.")
             # print(edgelist.head())
 
+            edgelist.drop("binary", axis=1, inplace=True)
             edgelist = edgelist.explode("layer")
             # self.report_time(message = "Exploded binary link identifiers.")
             # print(edgelist.head())
@@ -557,15 +619,19 @@ class MultiLayerNetwork:
         else: mode = 'undirected'
  
         # create igraph object
-        g = ig.Graph.Weighted_Adjacency(self.A, mode=mode, attr="link_types")
+        if edge_attributes:
+            g = ig.Graph.Weighted_Adjacency(self.A, mode=mode, attr="layer")
+        else:
+            g = ig.Graph.Adjacency(self.A.sign(), mode=mode)
         
         if edge_attributes:     
             # obtain and add (human readable) link types
-            link_dict = {}
-            for link_type in set(g.es["link_types"]):
-                link_dict[link_type] = self.decompose_binary_linktype(link_type)
+            layer_dict = {}
+            for layer in set(g.es["layer"]):
+                layer_dict[layer] = self.convert_layer_binary_to_list(layer, output_type="layer")
 
-            g.es["link_types"] = [link_dict[x] for x in g.es["link_types"]]
+            # rewrite link types to human readable
+            g.es["layer"] = [layer_dict[x] for x in g.es["layer"]]
             
         # add node attributes to graph from self.node_attributes
         if node_attributes:
@@ -577,7 +643,7 @@ class MultiLayerNetwork:
             g.vs["label"] = list(self.nodes["label"])
         
         # store igraph object as mln attribute
-        if self.igraph is None or replace_igraph :
+        if self.igraph is None or replace_igraph:
             self.igraph = g
         
         return g
@@ -629,8 +695,7 @@ class MultiLayerNetwork:
                 nx.set_node_attributes(g, attribute_list, col_name)
         else:
             # always add "label" column
-            map_id_to_label_dict = dict(zip(np.arange(len(self.map_nid_to_label)), self.map_nid_to_label))
-            nx.set_node_attributes(g, map_id_to_label_dict, "label")
+            nx.set_node_attributes(g, self.map_id_to_label, "label")
         
         # obtain and add (human readable) link types use dict for optimization
         link_dict = {}
@@ -642,7 +707,7 @@ class MultiLayerNetwork:
                 if weight in link_dict:
                     g[s][t]["link_types"] = link_dict[weight]
                 else:
-                    link_types = self.decompose_binary_linktype(weight)
+                    link_types = self.convert_layer_binary_to_list(weight)
                     link_dict[weight] = link_types
                     g[s][t]["link_types"] = link_types
  
@@ -651,7 +716,7 @@ class MultiLayerNetwork:
  
         return g
     
-    def convert_linktype(self, layer, input_type="layer", output_type="binary"):
+    def convert_layer_representation(self, layer, input_type="layer", output_type="binary"):
         """
         This function converts a single linktype or list of linktypes to
         their corresponding linklabels. Input can be binary, code or label.
@@ -675,7 +740,7 @@ class MultiLayerNetwork:
         
         dict_name = input_type + '_to_' + output_type
         try:
-            d = self.layers_dict[dict_name]
+            d = self.layer_conversion_dict[dict_name]
         except KeyError:
             print('Error: dictionary value not found. Please choose from "layer", "label", "binary"')
             return None
@@ -689,7 +754,7 @@ class MultiLayerNetwork:
             print(f'Error: invalid linktype found: {input_type} to {output_type}')
             return None
     
-    def decompose_binary_linktype(self,num):
+    def convert_layer_binary_to_list(self,num,output_type="layer"):
         """
         Based on the integer linktype, returns a list with the layers.
  
@@ -701,15 +766,32 @@ class MultiLayerNetwork:
                 integer number to be converted to binary and returned as linktypes
         Returns:
             ---------------
-            list(str)
-                list of string linktypes corresponding to integer value
+            list(type(output type of self.convert_layer_representation))
+                list of layers corresponding to binary integer value
         """
 
-        if np.log2(float(num)) > self.layers.index[-1]:
-            raise ValueError(f"Linktype {num} is not a valid linktype in the network.")
+        if np.log2(float(num)) > self.layers.index[-1]+1:
+            raise ValueError(f"Layer binary value {num} is not a valid linktype in the network.")
 
-        return [self.convert_linktype(2**i, input_type='binary', output_type='layer')\
+        return [self.convert_layer_representation(2**i, input_type='binary', output_type=output_type)\
                  for i in range(self.layers.index[-1]) if int(num)&(2**i)>0]
+    
+    def save_to_graphml(self, file_name, directed = True, edge_attributes = True, node_attributes = False, overwrite = False):
+        _, extension = os.path.splitext(file_name)
+
+        if extension == ".graphml":
+            if self.igraph is None or overwrite:
+                self.igraph = self.to_igraph(
+                    node_attributes=node_attributes,
+                    edge_attributes=edge_attributes,
+                    directed=directed
+                )
+            else:
+                raise Warning("Warning: igraph object already exists, not creating a new one - using it as you've created it earlier." +\
+                              "If you want to overwrite it, call the function with overwrite=True.")
+            self.igraph.write_graphml(file_name)
+        else:
+            raise ValueError(f"Error: {extension} is not a valid file extension for graphml saving.")
     
     def export_edges(self, file_name):
         """
@@ -725,35 +807,31 @@ class MultiLayerNetwork:
             -----------
             file_name : str
                 file to write graph to. Extension should contain the type of output
-                [".npz", ".csv", ".csv.gz", ".graphml"]
+                [".npz", ".csv", ".csv.gz"]
 
         """
         try:
             f = open(file_name, "w")
         except:
-            print(f"Error: {file_name} could not be opened")
-            print("No graph exported")
-            return
+            raise ValueError(f"Error: {file_name} could not be opened.")
         
         _, extension = os.path.splitext(file_name)
  
         if extension in ['.csv','.gz']:
             # get edgelist of self.A
-            edgelist = self.get_edgelist()
+            edgelist = self.get_edgelist(edge_attribute = "layer")
         
             # write to csv file
             if file_name.endswith(".csv"):
                 edgelist.to_csv(file_name, index=False)
             else:
                 edgelist.to_csv(file_name, index=False, compression = 'gzip')
-        elif extension == ".graphml":
-            if self.igraph is None :
-                self.igraph = self.to_igraph()
-            self.igraph.write_graphml(file_name)
-        else:
+        elif extension == ".npz":
             save_npz(file_name, self.A)
+        else:
+            raise ValueError(f"Error: {extension} is not a valid file extension for edge saving.")
              
-    def export_nodes(self, file_name,):
+    def export_nodes(self, file_name):
         """
         Write self.node_attributes to file to .csv or .csv.gz file
         graphml
@@ -767,15 +845,15 @@ class MultiLayerNetwork:
             f = open(file_name, "w")
             f.close()
         except:
-            print(f"Error: {file_name} could not be opened.")
-            print("No node attributes exported.")
-            return
+            raise ValueError(f"Error: {file_name} could not be opened.")
         
         _, extension = os.path.splitext(file_name)
         if extension == ".csv":
             self.nodes.to_csv(file_name)
-        else:
+        elif extension == ".gz":
             self.nodes.to_csv(file_name, compression="gzip")
+        else:
+            raise ValueError(f"Error: {extension} is not a valid file extension for node saving.")
             
     def save(self, path = "", overwrite = False, **kwargs):
         """
@@ -855,9 +933,9 @@ class MultiLayerNetwork:
         """
         
         if not ignore_limit and depth > ego_depth_limit:
-            print(f"Please use a maximum depth of {ego_depth_limit}")
-            print("To ignore this limit, please use \'ignore_limit=True\'")
-            return
+            raise ValueError(f"Depth {depth} is too large for ego network." +\
+                             f"Please use a maximum depth of {ego_depth_limit}" +\
+                             f"To ignore, use ignore_limit=True")
         
         ego = self.to_id(ego_label)
  
@@ -869,7 +947,7 @@ class MultiLayerNetwork:
         for k in range(1, depth):
             next_neighbors = self.A[selected].indices
             # there might be circles when looking for new neighbors, so we take unique integer ids
-            selected_nodes = pd.unique(np.concatenate((selected, next_neighbors)))
+            selected = pd.unique(np.concatenate((selected, next_neighbors)))
  
         selected = list(map(lambda x: self.map_id_to_label[x], selected))
  
@@ -877,7 +955,7 @@ class MultiLayerNetwork:
         if return_list:
             return selected
         else:
-            return self.get_filtered_network(selected_nodes = selected)
+            return self.get_filtered_network(nodes_selected = selected)
     
     def create_affiliation_matrix(self, key, affil_edgelist):
         """
@@ -945,7 +1023,7 @@ class MultiLayerNetwork:
             -------------
                 A : sparsegraph A which is a downcasted version of self.A
         """
-        return self.A.astype(bool).astype(np.int16)
+        return self.A.sign()
     
     def to_id(self, labels):
         """
@@ -989,28 +1067,20 @@ class MultiLayerNetwork:
         else:
             return [self.map_id_to_label[elem] for elem in ids]
 
-    def get_degrees(self, selected_nodes=None, selected_layers=None):
+    def get_degrees(self, selected_nodes=[]):
         """
-        Calculate degree for selected nodes with selected layers.
+        Calculate degree for selected nodes.
+
+        If you also want to select layers, we suggest using the get_filtered_network method first.
         """
-        if selected_nodes is None:
+        if len(selected_nodes)==0:
             selected_nodes = self.nodes["label"].tolist()
         
         selected_nodes = [self.to_id(n) for n in selected_nodes]
 
-        if selected_layers is None:
-            return dict(zip([self.to_label(n) for n in selected_nodes], self.downcast_to_binary()[selected_nodes, :].sum(axis=0).tolist()[0]))
-        else:
-            res = {}
+        return dict(zip([self.to_label(n) for n in selected_nodes], self.A[selected_nodes, :].sign().sum(axis=0).tolist()[0]))
 
-            for layer in selected_layers:
-                if layer not in self.layer_adj:
-                    _ = self.get_single_layer_adj_matrix(layer=layer,store=True)
-                res[layer] = dict(zip([self.to_label(n) for n in selected_nodes],self.layer_adj[selected_nodes,:].T.sum()))
-
-            return res
-
-    def get_clustering_coefficient(self, selected_nodes=None, selected_layers=None, batchsize=100000):
+    def get_clustering_coefficient(self, selected_nodes=[],batchsize=100000):
         """
         Calculate clustering coefficient for selected nodes with selected layers.
 
@@ -1018,8 +1088,6 @@ class MultiLayerNetwork:
         -----------
             selected_nodes : list, default None
                 which nodes to compute cc for, if None, use all
-            selected_layers : list of str
-                which layers to include in the computation
             batchsize : int, default 100000
                 chunks in which to split up matrix multiplication bc of memory
                 issues
@@ -1029,9 +1097,7 @@ class MultiLayerNetwork:
             dict with first key "clustering_coefficient", then dict of label -> cc values
             
         """
-        if selected_layers is None:
-            selected_layers = list(self.layers["layer"])
-        if selected_nodes is None:
+        if len(selected_nodes)==0:
             selected_nodes = self.nodes["label"].tolist()
         
         selected_nodes = [self.to_id(n) for n in selected_nodes]
@@ -1039,14 +1105,7 @@ class MultiLayerNetwork:
         if batchsize > len(selected_nodes):
             batchsize = len(selected_nodes)
 
-        # obtain a copy of the sparse adjacency matrix such that each element
-        # A[i,j] contains the number of links between i and j
-        A = csr_matrix(self.A.shape, dtype=np.int64)
-
-        for layer in selected_layers:
-            if layer not in self.layer_adj:
-                _ = self.get_single_layer_adj_matrix(layer=layer,store=True)
-            A += self.layer_adj[layer]
+        A = self.to_binary_adjacency()
 
         # find all triangles
         triangles = np.empty(0, dtype=np.int64)
@@ -1059,6 +1118,8 @@ class MultiLayerNetwork:
             A_ = A[selected_nodes[i:i+batchsize],:]
             res = (A_ @ A @ A_.T).diagonal() // 2
             triangles = np.concatenate((triangles, res))
+
+        # print("Triangles",dict(zip(self.nodes["label"],triangles)))
 
         A = A[selected_nodes,:]
 
@@ -1075,47 +1136,7 @@ class MultiLayerNetwork:
         # triangles / P
         clustering_coefficient = np.divide(triangles, P, out=np.zeros(len(selected_nodes)), where=P!=0)
 
-        return {
-            "clustering_coefficient": dict(zip([self.to_label(n) for n in selected_nodes],clustering_coefficient)),
-        }
-
-    def get_single_layer_adj_matrix(self,layer=None,store=False,storage_name=""):
-        """
-        Getting 0/1 adjacency matrix of a single layer or linktype.
-
-        Parameters:
-        -----------
-            layer: str, int or list[int]
-                if str, whole layer
-                if int, one linktype correspoding to linktype code
-                if list[int] several linktypes
-            store: bool, default False
-                store adjacency matrix in self.layer_adj
-            storage_name: str, default None
-                if layer is int or list, giving a name to the stored adjacency patrix e.g. parents
-
-        Returns
-        -------
-            scipy.sparse
-                0/1 adjacency matrix of shape (self.N,self.N)
-        """
-        if type(layer)==str:
-            lA = self.get_filtered_network(full_layers=[layer]).downcast_to_binary()
-            if store:
-                self.layer_adj[layer] = lA
-        elif type(layer)==int:
-            lA = self.get_filtered_network(layer_codes=[layer]).downcast_to_binary()
-            if store and storage_name!="" and storage_name not in self.layers["layer"]:
-                self.layer_adj[storage_name] = lA
-            else:
-                print("Please give a correct storage name that is nonempty and not one of the layer names!")
-        elif type(layer)==list:
-            lA = self.get_filtered_network(layer_codes=layer).downcast_to_binary()
-            if store and storage_name!="" and storage_name not in self.layers["layer"]:
-                self.layer_adj[storage_name] = lA
-            else:
-                print("Please give a correct storage name that is nonempty and not one of the layer names!")
-        return lA
+        return dict(zip([self.to_label(n) for n in selected_nodes],clustering_coefficient))
 
     def get_supra_adj_matrix(self):
         """
@@ -1130,8 +1151,9 @@ class MultiLayerNetwork:
         # diagonal matrices
         d = []
         for l in self.layers["layer"]:
-            if l not in self.layer_adj:
-                _ = self.get_single_layer_adj_matrix(layer=l,store=True)
-            d.append(self.layer_adj[l])
+            if l not in self.layer_adjacency_matrix:
+                d.append(self.get_layer_adjacency_matrix(layer=l))
+            else:
+                d.append(self.layer_adjacency_matrix[l])
         self.sA += block_diag(d)
         return self.sA

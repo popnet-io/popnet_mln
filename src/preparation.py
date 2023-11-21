@@ -55,11 +55,16 @@ class RawCSVtoMLN:
                 sep = ",",
                 colors = ""
             ),
+            output_folder = "",
             **kwargs
         ):
+
         self.node_conf = node_conf
         self.edge_conf = edge_conf
         self.layer_conf = layer_conf
+        self.output_folder = output_folder
+        
+        # other kwargs
         for (k, v) in kwargs.items():
          setattr(self, k, v)
 
@@ -304,7 +309,7 @@ class RawCSVtoMLN:
             if num_edges>0:
                 A = self.adjacency_matrix(self.edgelist[selection], binary, symmetrize=layer in self.layer_conf["symmetrize"])
                 self.A += A
-                print(f"Adding {A.nnz} edges.")
+                print(f"\t\tAdding {A.nnz} edges.")
                 # cleaning memory of large unnecessary objects
                 del A
                 gc.collect()
@@ -341,41 +346,45 @@ class RawCSVtoMLN:
         save_npz(output, self.A)
         print("Done.")
 
-    def save_all(self, output_folder = "", overwrite = False):
+    def save_all(self, overwrite = False):
+        # if overwrite in attributes, set overwrite
+        if "overwrite" in self.__dict__:
+            overwrite = self.overwrite
         # check if output_folder is given and give warning if not
-        if output_folder == "":
+        if self.output_folder== "":
             print("WARNING: No output folder given, saving to current directory.")
-        # check if output folder has an ending / and add it if not
-        if not output_folder.endswith("/"):
-            output_folder += "/"
-        # check if output folder exists, if not, create it
-        if not os.path.isdir(output_folder):
-            os.mkdir(output_folder)
+        else:
+            # check if output folder has an ending / and add it if not
+            if not self.output_folder.endswith("/"):
+                self.output_folder += "/"
+            # check if output folder exists, if not, create it
+            if not os.path.isdir(self.output_folder):
+                os.mkdir(self.output_folder)
 
 
         print("Writing node, layer and edge files...")
 
         if self.layer_conf["output"]=="": self.layer_conf["output"] = "layers.csv"
         # check if the above file exists, if overwrite=False, raise error
-        if os.path.isfile(output_folder + self.layer_conf["output"]) and not overwrite:
+        if os.path.isfile(self.output_folder + self.layer_conf["output"]) and not overwrite:
             raise ValueError("Layer file already exists, please specify overwrite=True in config file.")
-        print("Writing layer file to " + output_folder + self.layer_conf["output"] + "...")
-        self.save_layer_df(output_folder + self.layer_conf["output"])
+        print("Writing layer file to " + self.output_folder + self.layer_conf["output"] + "...")
+        self.save_layer_df(self.output_folder + self.layer_conf["output"])
         print("Done")
         
         if self.node_conf["output"]=="": self.node_conf["output"] = "nodes.csv.gz"
         # check if the above file exists, if overwrite=False, raise error
-        if os.path.isfile(output_folder + self.node_conf["output"]) and not overwrite:
+        if os.path.isfile(self.output_folder + self.node_conf["output"]) and not overwrite:
             raise ValueError("Node file already exists, please specify overwrite=True in config file.")
-        print("Writing node file to " + output_folder + self.node_conf["output"] + "...")
-        self.save_node_df(output_folder + self.node_conf["output"])
+        print("Writing node file to " + self.output_folder + self.node_conf["output"] + "...")
+        self.save_node_df(self.output_folder + self.node_conf["output"])
         print("Done.")
         
         if self.edge_conf["output"]=="": self.edge_conf["output"] = "edges.npz"
         # check if the above file exists, if overwrite=False, raise error
-        if os.path.isfile(output_folder + self.edge_conf["output"]) and not overwrite:
+        if os.path.isfile(self.output_folder + self.edge_conf["output"]) and not overwrite:
             raise ValueError("Edge file already exists, please specify overwrite=True in config file.")
-        print("Writing edge file to " + output_folder + self.edge_conf["output"] + "...")
-        self.save_edge_npz(output_folder + self.edge_conf["output"])
+        print("Writing edge file to " + self.output_folder + self.edge_conf["output"] + "...")
+        self.save_edge_npz(self.output_folder + self.edge_conf["output"])
         print("Done.")
 
