@@ -324,7 +324,7 @@ class MultiLayerNetwork:
         """
 
         if layer_type not in ["label", "layer"]:
-            raise ValueError(f"Invalid layer_type {layer_type}. Please choose from 'label' or 'layer'.")
+            raise ValueError(f"Invalid layer_type '{layer_type}'. Please choose from 'label' or 'layer'.")
         
         if len(groups_selected)>0:
             if "group" not in self.layers.columns:
@@ -332,7 +332,7 @@ class MultiLayerNetwork:
             # get layers corresponding to group
             for g in groups_selected:
                 if g not in self.layers["group"].unique().tolist():
-                    raise ValueError(f"Invalid group {g}. Please choose from {self.layers['group'].unique().tolist()}.")
+                    raise ValueError(f"Invalid group '{g}'. Please choose from {self.layers['group'].unique().tolist()}.")
                 layers_selected += self.layers[self.layers["group"] == g][layer_type].tolist()
 
         # if there is any node selection, then decrease matrix size and grab the
@@ -346,7 +346,7 @@ class MultiLayerNetwork:
             elif node_type == "id":
                 nodes_selected = np.array(nodes_selected)
             else:
-                raise ValueError(f"Invalid node_type {node_type}. Please choose from 'label' or 'id'.")
+                raise ValueError(f"Invalid node_type '{node_type}'. Please choose from 'label' or 'id'.")
             
             # creating True/False mask for faster selection
             idx = np.array(np.zeros(self.N,dtype=bool))
@@ -362,7 +362,7 @@ class MultiLayerNetwork:
         if len(layers_selected)>0:
             for l in layers_selected:
                 if l not in self.layers[layer_type].tolist():
-                    raise ValueError(f"Invalid layer {l} for layer type {layer_type}. Please choose from {self.layers[layer_type].tolist()}.")
+                    raise ValueError(f"Invalid layer '{l}' for layer_type '{layer_type}'. Please choose from {self.layers[layer_type].tolist()}.")
             # adding up the binary codes for the full layers from the argumentif len(layers)>0:
             # based on type of layer value:
             binary_repr = sum([self.layer_conversion_dict[layer_type + "_to_binary"][layer] for layer in layers_selected])
@@ -381,16 +381,16 @@ class MultiLayerNetwork:
     
     def get_layer_adjacency_matrix(self, layer, layer_type = 'layer', store = False):
         if layer_type not in ["label", "layer", "binary", "group"]:
-            raise ValueError(f"Invalid layer_type {layer_type}. Please choose from 'label' or 'layer' or 'binary'.")
+            raise ValueError(f"Invalid layer_type '{layer_type}'. Please choose from 'label' or 'layer' or 'binary'.")
         
         if layer not in self.layers[layer_type].tolist():
-            raise ValueError(f"Invalid layer {layer} for layer type {layer_type}. Please choose from {self.layers[layer_type].tolist()}.")
+            raise ValueError(f"Invalid layer '{layer}' for layer_type '{layer_type}'. Please choose from {self.layers[layer_type].tolist()}.")
         
         if layer_type == "group":
             if "group" not in self.layers.columns:
                 raise ValueError("No group information found in self.layers. Please add a column called 'group' to self.layers.")
             if layer not in self.layers["group"].tolist():
-                raise ValueError(f"Invalid group {layer}. Please choose from {self.layers['group'].unique().tolist()}.")
+                raise ValueError(f"Invalid group '{layer}'. Please choose from {self.layers['group'].unique().tolist()}.")
             # get layers corresponding to group
             layers = self.layers[self.layers["group"] == layer]["layer"].unique().tolist()
             # get corresponding binary representation
@@ -403,7 +403,7 @@ class MultiLayerNetwork:
                 binary_repr = layer
 
         # get layer value if it's not already given in layer
-        if layer_type != "layer":
+        if layer_type != "layer" and layer_type != "group":
             l = self.layer_conversion_dict[layer_type + "_to_layer"][layer]
         else:
             l = layer
@@ -593,7 +593,7 @@ class MultiLayerNetwork:
             # self.report_time(message = "Adding that to dataframe?")
             # print(edgelist.head())
         else:
-            raise ValueError(f"Invalid edge_attribute {edge_attribute}. Please choose from 'binary', 'layer', 'label' or 'weight'.")
+            raise ValueError(f"Invalid edge_attribute '{edge_attribute}'. Please choose from 'binary', 'layer', 'label' or 'weight'.")
         
         return edgelist
     
