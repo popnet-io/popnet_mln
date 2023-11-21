@@ -146,6 +146,10 @@ class RawCSVtoMLN:
     # Loading node attributes files
     # =============================
     def init_nodes(self):
+        """
+        Read node dataframe from node_conf["files"]. If node_conf["files"] is empty,
+        create a node dataframe from the edgelist.
+        """
         print("Creating merged node attribute file...")
 
         if self.node_conf["colmap"] != "":
@@ -322,6 +326,9 @@ class RawCSVtoMLN:
         gc.collect()
 
     def init_all(self):
+        """
+        Read all components given in config, and save results to output folder if necessary.
+        """
         self.read_edgelist()
         self.init_layers()
         print(f"LAYERS: {self.layers.shape[0]}")
