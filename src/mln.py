@@ -331,7 +331,7 @@ class MultiLayerNetwork:
                 raise ValueError("No group information found in self.layers. Please add a column called 'group' to self.layers.")
             # get layers corresponding to group
             for g in groups_selected:
-                layers_selected += self.layers[self.layers["group"] == g]["layer"].tolist()
+                layers_selected += self.layers[self.layers["group"] == g][layer_type].tolist()
 
         # if there is any node selection, then decrease matrix size and grab the
         # relevant rows from the node attributes table
