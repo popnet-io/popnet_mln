@@ -552,7 +552,7 @@ class MultiLayerNetwork:
             edgelist["source"] = edgelist["source"].map(self.to_label)
             edgelist["target"] = edgelist["target"].map(self.to_label)
 
-        elif edge_attribute == "layer":
+        elif edge_attribute == "layer" or edge_attribute == "label":
             edges_with_weights = np.concatenate((edges, weights), axis=1)
             edgelist = pd.DataFrame(edges_with_weights, columns = ["source", "target", "binary"])
             # self.report_time(message = "Creating edgelist dataframe.")
@@ -567,21 +567,23 @@ class MultiLayerNetwork:
             # convert all unique binary linktypes to their labels
             link_dict = {}
             for link in edgelist["binary"].unique():
-                link_dict[link] = self.convert_layer_binary_to_list(link, output_type="layer")
+                link_dict[link] = self.convert_layer_binary_to_list(link, output_type=edge_attribute)
             # self.report_time(message = "Unfolded binary link identifiers.")
             # print(edgelist.head())
 
             # get pairs (binary_linktype, label) of each link
-            edgelist["layer"] = edgelist["binary"].map(link_dict)
+            edgelist[edge_attribute] = edgelist["binary"].map(link_dict)
             # self.report_time(message = "Mapped binary link identifiers.")
             # print(edgelist.head())
 
             edgelist.drop("binary", axis=1, inplace=True)
-            edgelist = edgelist.explode("layer")
+            edgelist = edgelist.explode(edge_attribute)
             # self.report_time(message = "Exploded binary link identifiers.")
             # print(edgelist.head())
             # self.report_time(message = "Adding that to dataframe?")
             # print(edgelist.head())
+        else:
+            raise ValueError(f"Invalid edge_attribute {edge_attribute}. Please choose from 'binary', 'layer', 'label' or 'weight'.")
         
         return edgelist
     
