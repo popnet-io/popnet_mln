@@ -379,7 +379,7 @@ class MultiLayerNetwork:
  
         return f
     
-    def get_layer_adjacency_matrix(self, layer, layer_type = 'layer', store = False):
+    def get_layer_adjacency_matrix(self, layer, layer_type = 'layer', store = False, dtype='int64'):
         if layer_type not in ["label", "layer", "binary", "group"]:
             raise ValueError(f"Invalid layer_type '{layer_type}'. Please choose from 'label' or 'layer' or 'binary'.")
         
@@ -420,13 +420,46 @@ class MultiLayerNetwork:
         A_layer.eliminate_zeros()
         A_layer = A_layer.sign()
 
+        if dtype != 'int64':
+            A_layer = A_layer.astype(dtype)
+
         # store if necessary
         if store:
             if layer_type == "group":
                 self.group_adjacency_matrix[layer] = A_layer
             else:
-                self.layer_adjacency_matrix[l] = A_layer        
+                self.layer_adjacency_matrix[l] = A_layer    
+
         return A_layer
+    
+    def clear_layer_adjacency_matrices(self):
+        """
+        Clears all layer adjacency matrices.
+
+        This method resets the layer adjacency matrix attribute to an empty dictionary, 
+        effectively removing all previously stored layer adjacency matrices.
+        """
+        self.layer_adjacency_matrix = {}
+
+    def clear_group_adjacency_matrices(self):
+        """
+        Clears all group adjacency matrices.
+
+        This method resets the group adjacency matrix attribute to an empty dictionary, 
+        effectively removing all previously stored group adjacency matrices.
+        """
+        self.group_adjacency_matrix_adjacency_matrix = {}
+
+    def clear_all_adjacency_matrices(self):
+        """
+        Clears all adjacency matrices, group and layer.
+
+        This method resets the group and layer adjacency matrix attribute to an empty dictionary,
+        effectively removing all previously stored adjacency matrices.
+        """
+        self.clear_layer_adjacency_matrices()
+        self.clear_group_adjacency_matrices()
+
 
     def get_aggregated_network(self, aggregation_column=None, keep_layers = False):
         """
