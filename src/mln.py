@@ -1181,7 +1181,7 @@ class MultiLayerNetwork:
         if batchsize > len(selected_nodes):
             batchsize = len(selected_nodes)
 
-        A = self.to_binary_adjacency()
+        A = self.get_binary_adjacency()
 
         # find all triangles
         triangles = np.empty(0, dtype=np.int64)
