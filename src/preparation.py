@@ -45,7 +45,6 @@ class RawCSVtoMLN:
                 output = ""
             ),
             layer_conf = dict(
-                input_folder_prefix = "",
                 raw_file = "",
                 file = "",
                 output = "",
@@ -63,6 +62,11 @@ class RawCSVtoMLN:
         self.edge_conf = edge_conf
         self.layer_conf = layer_conf
         self.output_folder = output_folder
+
+        # check if output folder is empty, if not, add / to end
+        if self.output_folder != "":
+            if not self.output_folder.endswith("/"):
+                self.output_folder += "/"
         
         # other kwargs
         for (k, v) in kwargs.items():
@@ -76,6 +80,7 @@ class RawCSVtoMLN:
         """
         Either read layer file, or create rich layer dataframe from bare minimum input.
         """
+
         # if the layer file is not yet prepared
         if self.layer_conf["file"] == "":
             print("Trying to create enriched layer dataframe...")
@@ -85,7 +90,7 @@ class RawCSVtoMLN:
             else:
                 print("\tReading raw layer input file...")
                 self.layers = pd.read_csv(
-                    self.layer_conf["raw_file"],
+                    self.layer_conf["input_folder_prefix"] + self.layer_conf["raw_file"],
                     index_col=None,
                     header=0,
                     sep=self.layer_conf["raw_sep"]
@@ -116,8 +121,8 @@ class RawCSVtoMLN:
                 # print(json.dumps(self.layer_conf["colors"],indent="\t\t"))
                 self.layers["color"] = self.layers["group"].map(self.layer_conf["colors"])
             # exporting
-            self.layers.to_csv(self.layer_conf["output"],index=False,header=True)
-            self.layer_conf["file"] = self.layer_conf["output"]
+            self.layer_conf["file"] = self.output_folder + self.layer_conf["output"]
+            self.layers.to_csv(self.layer_conf["file"],index=False,header=True)
         
         print("Done.")
         print("Reading " + self.layer_conf["file"] + "...")
