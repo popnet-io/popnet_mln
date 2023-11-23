@@ -1,6 +1,64 @@
 """
-This script performs the data preparation steps and metadata enrichment for
-a multilayer network.
+Author: Eszter Bokanyi, 2023
+E-mail: e.bokanyi@uva.nl
+
+This file is created in the context of the POPNET project:
+https://popnet.io
+
+This script is able to prepare a multilayer network suitable for reading
+with mln.py from a very general set of CSV files.
+
+It accepts an arbitrary number of nodelist and edgelist CSV input files, reads through them,
+and merges the node properties, and converts the edgelists to a scipy.sparse adjacency matrix.
+The conversion happens through a layer.csv file, that contains the different linktypes and their
+binary representation. If no nodelist or layer file is given, these are inferred from the edgelist.
+
+Every input CSV is assumed to have a header and no index col.
+
+The config parameter colmap is a JSON file or a dict that maps the column names of the input files
+to the column names of the output files. If the map is empty ("none"), the column is dropped.
+
+The main node file is used to determine the node set, and the other node files are merged into it.
+
+The symmetrize parameters control whether the edgelists are symmetrized. If symmetrize_all is True,
+all layers are symmetrized, thus, the network is undirected. 
+Otherwise only the layers listed in symmetrize are symmetrized.
+
+The config file is a JSON file with the following structure:
+    
+    {
+        "node_conf": {
+            "input_folder_prefix": "",
+            "files": [],
+            "colmap": "",
+            "sep": ";",
+            "main_file": 0,
+            "output": ""
+        },
+        "edge_conf": {
+            "input_folder_prefix": "",
+            "files": [],
+            "colmap": "",
+            "sep": ";",
+            "output": ""
+        },
+        "layer_conf": {
+            "raw_file": "",
+            "file": "",
+            "output": "",
+            "symmetrize": [],
+            "symmetrize_all": False,
+            "raw_sep":",",
+            "sep": ",",
+            "colors": ""
+        },
+        "output_folder": ""
+    }
+
+The resulting files are saved to the output folder, if given, otherwise to the current directory:
+    * nodes.csv.gz: node dataframe
+    * edges.npz: adjacency matrix
+    * layers.csv: layer dataframe
 """
 
 import pandas as pd
