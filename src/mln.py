@@ -1,3 +1,68 @@
+"""
+Author: Eszter Bokanyi
+E-mail: e.bokanyi@uva.nl
+
+This file is created in the context of the POPNET project:
+https://popnet.io
+
+This file contains the MultiLayerNetwork class, which is the main class of
+the package. It contains tools to work with a large multilayer network
+using different edge types and layers efficiently.
+
+There are three main ingredients:
+    * nodes: pd.DataFrame with node attributes
+    * A: scipy.sparse.csr_matrix with edge types encoded
+    * layers: pd.DataFrame with layer information
+
+The network is either loaded from disk, using the library mode
+    e.g.
+    >>> mln = MultiLayerNetwork(load_from_library=True, library_path="my_library")
+    the referred folder should contain the following files:
+        * edges.npz (scipy.sparse.csr_matrix of size NxN with binary linktypes)
+        * nodes.csv.gz or nodes_{pd.__version__}.pkl (pandas dataframe with node attributes, at least 'label' column)
+        * layers.csv (pandas dataframe with layer information, at least 'layer' column)
+or from raw CSV files using the RawCSVtoMLN class from preparation.py
+    e.g.
+    >>> mln = MultiLayerNetwork(load_from_config=True, config_path="config.json")
+    see the documentation of RawCSVtoMLN for more information
+    see config.json for an example configuration file
+
+It can also be initialized using in-memory objects.
+    e.g.
+    >>> mln = MultiLayerNetwork(nodes, edges, layers)
+
+After loading the three key elements, class attributes and methods work the same.
+
+Nodes have a label that can be of arbirary type, and an id that is an integer. The methods
+`to_id` and `to_label` convert between the two representations. The nodes dataframe is
+stored in `self.nodes`, and it always has at least a column called `label` that contains
+the node labels, and an `id` column that contains the node ids. Apart from label and id,
+there can be several more columns to store node properties.
+
+The adjacency matrix self.A is stored in a `scipy.sparse.csr_matrix` class, that only
+saves nonzero elements, and on which scipy csgraph algorithms run. The node index 'id'
+is the same as the row and column index of the adjacency matrix.
+
+The adjacency matrix contains integers that encode layers if viewed as binary numbers.
+
+The layer information is stored in self.layers, which is a pandas DataFrame. It has the
+following columns:
+    * layer: the layer id, which is an integer between 0 and L-1, where L is the number
+      of layers stored in self.L
+    * label: the human-readable name of the layer
+    * binary: the binary representation of the layer, which is power of 2 between  0 and
+      2**L-1, where L is the number of layers
+    * group: the group to which the layer belongs. This is useful for aggregating layers.
+
+For further information, see the documentation of the MultiLayerNetwork class.
+
+It is possible to export the network to disk either using the three files as described
+above, or to a graphml file. The latter is useful for visualization purposes.
+
+It is also possible to convert the network to igraph or networkx objects.
+
+"""
+
 # change working directory to repo root
 import os
 os.chdir(os.path.dirname(os.path.abspath(__file__)) + '/..')
