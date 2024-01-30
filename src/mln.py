@@ -1468,3 +1468,115 @@ class MultiLayerNetwork:
             self.sA = self.sA.astype(dtype)
 
         return self.sA
+    
+    def get_excess_closure(self, selected_nodes=[], node_type="label", selected_layers=[], layer_type = "layer", batchsize=100000):
+        """
+        Calculate the measure called excess closure for selected nodes and layers.
+
+        See Bokanyi et al. 2023 for more details.
+        """
+
+        if layer_type not in ["label", "layer", "binary", "group"]:
+            raise ValueError(f"Invalid layer_type '{layer_type}'. Please choose from 'label' or 'layer' or 'binary'.")
+        
+        for layer in selected_layers:
+            if layer not in self.layers[layer_type].tolist():
+                raise ValueError(f"Invalid layer '{layer}' for layer_type '{layer_type}'. Please choose from {self.layers[layer_type].tolist()}.")
+        
+        if layer_type == "group":
+            if "group" not in self.layers.columns:
+                raise ValueError("No group information found in self.layers. Please add a column called 'group' to self.layers.")
+            for layer in selected_layers:
+                if layer not in self.layers["group"].tolist():
+                    raise ValueError(f"Invalid group '{layer}'. Please choose from {self.layers['group'].unique().tolist()}.")
+                
+                temp = []
+                for layer in selected_layers:
+                    # get layers corresponding to group
+                    layers = self.layers[self.layers["group"] == layer]["layer"].unique().tolist()
+                    temp += layers      
+                selected_layers = temp
+
+        if layer_type == "binary":
+            binary_repr = sum(selected_layers)
+        else:
+            # get corresponding binary representation
+            binary_repr = sum([self._layer_conversion_dict["layer_to_binary"][layer] for layer in selected_layers])
+        
+        # get layer value if it's not already given in layer
+        if layer_type != "layer" and layer_type != "group":
+            l = self._layer_conversion_dict[layer_type + "_to_layer"][layer]
+        else:
+            l = layer
+
+        if len(selected_nodes)==0:
+            selected_nodes = self.nodes["label"].tolist()
+        else:
+            if node_type == "label":
+                selected_nodes = [self.to_id(n) for n in selected_nodes]
+            elif node_type == "id":
+                pass
+            else:
+                raise ValueError(f"Invalid node_type '{node_type}'. Please choose from 'label' or 'id'.")
+
+
+        # obtain a copy of the sparse adjacency matrix such that each element
+        # A[i,j] contains the number of links between i and j
+        A = deepcopy(self.A)
+        A.data = A.data & binary_repr
+        # create lookup table for potential values
+        lookup = {}
+        for i in range(2**self.L):
+            lookup[i] = bin(i).count("1")
+        # apply lookup table
+        A.data = np.array([lookup[x] for x in A.data])
+
+        # find all triangles
+        triangles = np.empty(0, dtype=np.uint64)
+        # B = A @ A @ A contains the number of paths of length 3 between B[i,j]
+        # so B.diagonal() contains the number of triangles:
+        #     paths of length 3 between a node and itself
+        # // 2 as every path is found in both directions
+        # B will not fit in memory, so we do this in steps
+        for i in range(0, len(selected_nodes), batchsize):
+            A_ = A[selected_nodes[i:i+batchsize],:]
+            res = (A_ @ A @ A_.T).diagonal() // 2
+            triangles = np.concatenate((triangles, res))
+
+        # get triangles which only use 1 layer
+        pure_triangles = np.zeros(len(selected_nodes), np.uint64)
+        for layer in selected_layers:
+            t = np.empty(0, dtype=np.int64)
+            lA = self.layer_adj[layer]
+            for i in range(0,  len(selected_nodes), batchsize):
+                A_ = lA[selected_nodes[i:i+batchsize],:]
+                res = (A_ @ lA @ A_.T).diagonal() // 2
+                t = np.concatenate((t, res))
+            pure_triangles += t
+
+        A = A[selected_nodes,:]
+
+        # compute the denominator
+        # sum of neighbor degrees, over 2
+        l = comb(A.sum(axis=1), 2)
+        # sum of: neighbor degrees over two
+        r = csr_matrix((comb(A.data, 2), A.indices, A.indptr),(len(selected_nodes),self.N)).sum(axis=1)
+        P = np.array(l - r).T[0]
+
+        # we ensure that division by zero errors are correctly handled and nan/inf
+        # values are avoided
+
+        # pure_triangles / P
+        Cpure = np.divide(pure_triangles, P, out=np.zeros(len(selected_nodes)), where=P!=0)
+        # triangles / P
+        Cunique = np.divide(triangles, P, out=np.zeros(len(selected_nodes)), where=P!=0)
+
+        # (Cunique - Cpure) / (1 - Cpure)
+        excess_closure = np.divide(Cunique-Cpure, 1-Cpure, out=np.zeros(len(selected_nodes)), where=(1-Cpure)!=0)
+        clustering_coefficient = Cunique
+
+        return {
+            "clustering_coefficient": dict(zip([self.nodemap_back.get(n) for n in selected_nodes],clustering_coefficient)),
+            "excess_closure": dict(zip([self.nodemap_back.get(n) for n in selected_nodes],excess_closure))
+        }
+
