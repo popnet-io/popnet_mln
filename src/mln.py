@@ -63,6 +63,8 @@ It is also possible to convert the network to igraph or networkx objects.
 
 """
 
+# TODO ensure that when passing in-memory objects, the dtype of A is int
+
 # change working directory to repo root
 import os
 os.chdir(os.path.dirname(os.path.abspath(__file__)) + '/..')
@@ -402,6 +404,9 @@ class MultiLayerNetwork:
         layer = self.layers["layer"].tolist()
         # human-readable
         label = self.layers["label"].tolist()
+
+        if "group" in self.layers.columns:
+            group = self.layers["group"].tolist()
         
         bin_to_layer = dict(zip(binary, layer))
         bin_to_label = dict(zip(binary, label))
@@ -409,6 +414,17 @@ class MultiLayerNetwork:
         label_to_bin = dict(zip(label, binary))
         layer_to_bin = dict(zip(layer, binary))
         layer_to_label = dict(zip(layer, label))
+
+        group_add = {}
+
+        if "group" in self.layers.columns:
+            group_to_bin = self.layers.groupby("group")["binary"].sum().to_dict()
+            bin_to_group = {v: k for k, v in group_to_bin.items()}
+            group_add = {            
+                'group_to_binary' : group_to_bin,
+                'binary_to_group' : bin_to_group
+            }
+
         
         self._layer_conversion_dict = {
             'binary_to_layer' : bin_to_layer,
@@ -416,7 +432,8 @@ class MultiLayerNetwork:
             'layer_to_label' : layer_to_label,
             'layer_to_binary' : layer_to_bin,
             'label_to_binary' : label_to_bin,
-            'label_to_layer' : label_to_layer
+            'label_to_layer' : label_to_layer,
+            **group_add
         }
     
     
@@ -1382,7 +1399,7 @@ class MultiLayerNetwork:
 
         return dict(zip([self.to_label(n) for n in selected_nodes], self.A[selected_nodes, :].sign().sum(axis=0).tolist()[0]))
 
-    def get_clustering_coefficient(self, selected_nodes=[],batchsize=100000):
+    def get_clustering_coefficient(self, selected_nodes=[],node_type = "label",batchsize=100000):
         """
         Calculate clustering coefficient for selected nodes with selected layers.
 
@@ -1401,8 +1418,9 @@ class MultiLayerNetwork:
         """
         if len(selected_nodes)==0:
             selected_nodes = self.nodes["label"].tolist()
-        
-        selected_nodes = [self.to_id(n) for n in selected_nodes]
+
+        if node_type == "label":
+            selected_nodes = [self.to_id(n) for n in selected_nodes]
 
         if batchsize > len(selected_nodes):
             batchsize = len(selected_nodes)
@@ -1434,6 +1452,9 @@ class MultiLayerNetwork:
 
         # we ensure that division by zero errors are correctly handled and nan/inf
         # values are avoided
+
+        print("triangles",triangles)
+        print("P",P)
 
         # triangles / P
         clustering_coefficient = np.divide(triangles, P, out=np.zeros(len(selected_nodes)), where=P!=0)
@@ -1476,41 +1497,25 @@ class MultiLayerNetwork:
         See Bokanyi et al. 2023 for more details.
         """
 
+        # ====================== input handling ========================
+
+        # handling layer input
         if layer_type not in ["label", "layer", "binary", "group"]:
             raise ValueError(f"Invalid layer_type '{layer_type}'. Please choose from 'label' or 'layer' or 'binary'.")
         
         for layer in selected_layers:
             if layer not in self.layers[layer_type].tolist():
-                raise ValueError(f"Invalid layer '{layer}' for layer_type '{layer_type}'. Please choose from {self.layers[layer_type].tolist()}.")
+                raise ValueError(f"Invalid layer '{layer}' for layer_type '{layer_type}'. Please choose from {self.layers[layer_type].unique().tolist()}.")
         
-        if layer_type == "group":
-            if "group" not in self.layers.columns:
-                raise ValueError("No group information found in self.layers. Please add a column called 'group' to self.layers.")
-            for layer in selected_layers:
-                if layer not in self.layers["group"].tolist():
-                    raise ValueError(f"Invalid group '{layer}'. Please choose from {self.layers['group'].unique().tolist()}.")
-                
-                temp = []
-                for layer in selected_layers:
-                    # get layers corresponding to group
-                    layers = self.layers[self.layers["group"] == layer]["layer"].unique().tolist()
-                    temp += layers      
-                selected_layers = temp
+        if len(selected_layers)==0:
+            selected_layers = self.layers[layer_type].unique().tolist()
 
-        if layer_type == "binary":
-            binary_repr = sum(selected_layers)
-        else:
-            # get corresponding binary representation
-            binary_repr = sum([self._layer_conversion_dict["layer_to_binary"][layer] for layer in selected_layers])
-        
-        # get layer value if it's not already given in layer
-        if layer_type != "layer" and layer_type != "group":
-            l = self._layer_conversion_dict[layer_type + "_to_layer"][layer]
-        else:
-            l = layer
-
+        # get corresponding binary representation
+        binary_repr = sum([self._layer_conversion_dict[f"{layer_type}_to_binary"][layer] for layer in selected_layers])
+    
+        # handling node input
         if len(selected_nodes)==0:
-            selected_nodes = self.nodes["label"].tolist()
+            selected_nodes = self.nodes["id"].tolist()
         else:
             if node_type == "label":
                 selected_nodes = [self.to_id(n) for n in selected_nodes]
@@ -1519,41 +1524,57 @@ class MultiLayerNetwork:
             else:
                 raise ValueError(f"Invalid node_type '{node_type}'. Please choose from 'label' or 'id'.")
 
-
+        # ====================== actual calculation ========================
         # obtain a copy of the sparse adjacency matrix such that each element
         # A[i,j] contains the number of links between i and j
         A = deepcopy(self.A)
         A.data = A.data & binary_repr
-        # create lookup table for potential values
+        # this is necessary, otherwise the denominators will not be correct
+        # (we're using indptr and indices to calculate neighbor degrees)
+        A.eliminate_zeros()
+
+
+        # create lookup table for mapping binary values to number of layers / multiplexity
         lookup = {}
-        for i in range(2**self.L):
-            lookup[i] = bin(i).count("1")
+        for num in np.unique(A.data):
+            lookup[num] = bin(num).count("1")
         # apply lookup table
         A.data = np.array([lookup[x] for x in A.data])
 
         # find all triangles
-        triangles = np.empty(0, dtype=np.uint64)
+        triangles = np.empty(0, dtype=np.int64)
         # B = A @ A @ A contains the number of paths of length 3 between B[i,j]
         # so B.diagonal() contains the number of triangles:
         #     paths of length 3 between a node and itself
         # // 2 as every path is found in both directions
         # B will not fit in memory, so we do this in steps
         for i in range(0, len(selected_nodes), batchsize):
-            A_ = A[selected_nodes[i:i+batchsize],:]
+            start = i
+            end = i+batchsize
+            # if end is larger than matrix size, let it be the matrixsize
+            if end > len(selected_nodes):
+                end = len(selected_nodes)
+            A_ = A[selected_nodes[start:end],:]
             res = (A_ @ A @ A_.T).diagonal() // 2
             triangles = np.concatenate((triangles, res))
 
-        # get triangles which only use 1 layer
-        pure_triangles = np.zeros(len(selected_nodes), np.uint64)
+        # get number of triangles which only use 1 layer
+        pure_triangles = np.zeros(len(selected_nodes))
         for layer in selected_layers:
             t = np.empty(0, dtype=np.int64)
-            lA = self.layer_adj[layer]
+            lA = self.get_layer_adjacency_matrix(layer=layer, layer_type=layer_type)
             for i in range(0,  len(selected_nodes), batchsize):
-                A_ = lA[selected_nodes[i:i+batchsize],:]
+                start = i
+                end = i+batchsize
+                # if end is larger than matrix size, let it be the matrixsize
+                if end > len(selected_nodes):
+                    end = len(selected_nodes)
+                A_ = lA[selected_nodes[start:end],:]
                 res = (A_ @ lA @ A_.T).diagonal() // 2
-                t = np.concatenate((t, res))
+                t = np.concatenate((t, np.array(res)))
             pure_triangles += t
 
+        # decrease matrix size to only selected nodes
         A = A[selected_nodes,:]
 
         # compute the denominator
@@ -1562,9 +1583,8 @@ class MultiLayerNetwork:
         # sum of: neighbor degrees over two
         r = csr_matrix((comb(A.data, 2), A.indices, A.indptr),(len(selected_nodes),self.N)).sum(axis=1)
         P = np.array(l - r).T[0]
-
         # we ensure that division by zero errors are correctly handled and nan/inf
-        # values are avoided
+        # values are avoided    
 
         # pure_triangles / P
         Cpure = np.divide(pure_triangles, P, out=np.zeros(len(selected_nodes)), where=P!=0)
@@ -1576,7 +1596,7 @@ class MultiLayerNetwork:
         clustering_coefficient = Cunique
 
         return {
-            "clustering_coefficient": dict(zip([self.nodemap_back.get(n) for n in selected_nodes],clustering_coefficient)),
-            "excess_closure": dict(zip([self.nodemap_back.get(n) for n in selected_nodes],excess_closure))
+            "clustering_coefficient": dict(zip([self.to_label(n) for n in selected_nodes],clustering_coefficient)),
+            "excess_closure": dict(zip([self.to_label(n) for n in selected_nodes],excess_closure))
         }
 
