@@ -71,9 +71,12 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)) + '/..')
  
 # importing libraries
 import pandas as pd
+import polars as pl
 import numpy as np
+
 import igraph as ig
 import networkx as nx
+
 from src.preparation import RawCSVtoMLN
 
 from scipy.sparse import csr_matrix, save_npz, load_npz, eye, block_diag, kron
@@ -1302,7 +1305,7 @@ class MultiLayerNetwork:
  
         self.affiliation_matrix[key] = {}
  
-        unique_affiliations = set([v for k,v in affil_edgelist])
+        unique_affiliations = sorted(list(set([v for k,v in affil_edgelist])))
  
         M = len(unique_affiliations)
  
