@@ -672,7 +672,12 @@ class MultiLayerNetwork:
         if not aggregation_column in self.nodes.columns:
             raise ValueError(f"Column {aggregation_column} not found in self.nodes. Possible candidates are: ", self.nodes.columns)
         
-        grps, uniques = pd.factorize(self.nodes[aggregation_column], sort=True)
+        grps, uniques = pd.factorize(self.nodes[aggregation_column])
+
+        # making sure that the unique values are sorted
+        reind = {old_i: new_i for old_i, new_i in enumerate(np.argsort(uniques))}
+        grps = np.array([reind[i] for i in grps])
+        uniques = uniques[np.argsort(uniques)]
 
         # count how much each group occurs
         def count_grps(lst):
