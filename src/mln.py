@@ -672,7 +672,7 @@ class MultiLayerNetwork:
         if not aggregation_column in self.nodes.columns:
             raise ValueError(f"Column {aggregation_column} not found in self.nodes. Possible candidates are: ", self.nodes.columns)
         
-        grps, uniques = pd.factorize(self.nodes[aggregation_column])
+        grps, uniques = pd.factorize(self.nodes[aggregation_column], sort=True)
 
         # count how much each group occurs
         def count_grps(lst):
@@ -715,7 +715,7 @@ class MultiLayerNetwork:
 
         # this is only providing raw counts for all selected layers
         # TODO: it would be more elegant to keep layers!
-        selection_layers = pd.DataFrame(data={'layer' : 1, 'edge_label' : 'count', 'edge_label_long' : 'count', 'layer' : 'count', 'binary' : 1}, index=[0])
+        selection_layers = pd.DataFrame(data={'layer' : 1, 'label' : 'count', 'label_long' : 'count', 'layer' : 'count', 'binary' : 1}, index=[0])
         selection_layers_dict = {
             'binary_to_layer': {1 : 1},
             'binary_to_layer' : {1 : 'count'},
