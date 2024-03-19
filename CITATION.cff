@@ -13,7 +13,7 @@ authors:
 - family-names: "Kazmina"
   given-names: "Yuliia"
   orcid: "https://orcid.org/0000-0000-0000-0000"
-title: "POPNET MultiLayeredNetwork Library"
+title: "POPNET MultiLayerNetwork Library"
 version: 1.0
 date-released: 2022-07-20
 url: "https://github.com/popnet-io/popnet_mln"
