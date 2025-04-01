@@ -543,7 +543,6 @@ class MultiLayerNetwork:
             idx[nodes_selected] = True
 
             if keep_node_alignment:
-                print("Getting indices...")
                 i,j = self.A.nonzero()
                 test = np.isin(i,nodes_selected) & np.isin(j,nodes_selected)
                 selected_i = i[test]
@@ -552,25 +551,24 @@ class MultiLayerNetwork:
                 del j
                 selected_data = self.A.data[test]
                 del test
-                print("Done.")
-                print("Constructing larger matrix...")
                 A_selected = csr_matrix((selected_data,(selected_i,selected_j)),shape=(self.N,self.N),dtype=self.A.dtype)
-                print("Done.")
-                print("Constructing nodes...")
+                # keep full node dataframe
                 if self.use_polars:
                     nodes_selected = self.nodes.clone() 
                 else:
                     nodes_selected = self.nodes.copy()
-                nodes_selected["active"] = idx
-                print("Done.")
+                # filter down active nodes
+                nodes_selected["active"] &= idx
             else:
                 # slicing the adjacency matrix
                 A_selected = self.A[idx,:][:,idx]
                 # slicing the attribute table
                 if self.use_polars:
                     nodes_selected = self.nodes.filter(idx)
+                    nodes_selected["id"] = np.arange(sum(idx))
                 else:
                     nodes_selected = self.nodes.iloc[nodes_selected].reset_index(drop=True)
+                    nodes_selected["id"] = nodes_selected.index
         else:
             A_selected = deepcopy(self.A)
             nodes_selected = self.nodes
