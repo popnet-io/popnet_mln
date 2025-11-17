@@ -4,9 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlnlib"
-version = "0.2.39"
+version = "0.3.0"
 authors = [
-  { name="Eszter Bokányi", email="e.bokanyi@uva.nl" },
+  { name="Eszter Bokányi", email="e.bokanyi@liacs.leidenuniv.nl" },
 ]
 description = "Memory-efficient library for loading and working with large unweighted multilayer networks."
 readme = "README.md"
@@ -26,5 +26,5 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/popnet-io/popnet_mln"
-Issues = "https://github.com/popnet-io/popnet_mln/issues"
+Homepage = "https://github.com/planet-nl/mlnlib"
+Issues = "https://github.com/planet-nl/mlnlib/issues"
