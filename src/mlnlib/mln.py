@@ -1,9 +1,9 @@
 """
-Author: Eszter Bokanyi
-E-mail: e.bokanyi@uva.nl
+Author: Eszter Bokányi
+E-mail: e.bokanyi@liacs.leidenuniv.nl
 
-This file is created in the context of the POPNET project:
-https://popnet.io
+This file is created in the context of the POPNET/PLANET-NL project:
+https://planetnl.org
 
 This file contains the MultiLayerNetwork class, which is the main class of
 the package. It contains tools to work with a large multilayer network
@@ -18,7 +18,7 @@ The network is either loaded from disk, using the library mode
     e.g.
     >>> mln = MultiLayerNetwork(load_from_library=True, library_path="my_library")
     the referred folder should contain the following files:
-        * edges.npz (scipy.sparse.csr_matrix of size NxN with binary linktypes)
+        * edges.npz (scipy.sparse.csr_matrix of size NxN with binary layer encoding)
         * nodes.csv.gz or nodes_{pd.__version__}.pkl (pandas dataframe with node attributes, at least 'label' column)
         * layers.csv (pandas dataframe with layer information, at least 'layer' column)
 or from raw CSV files using the RawCSVtoMLN class from preparation.py
@@ -121,7 +121,7 @@ class MultiLayerNetwork:
                     e.g.
                     >>> mln = MultiLayerNetwork(load_from_library=True, library_path="my_library")
                     the referred folder should contain the following files:
-                        * edges.npz (scipy.sparse.csr_matrix of size NxN with binary linktypes)
+                        * edges.npz (scipy.sparse.csr_matrix of size NxN with binary layer encoding)
                         * nodes.csv.gz or nodes_{pd.__version__}.pkl (pandas dataframe with node attributes, at least 'label' column)
                         * layers.csv (pandas dataframe with layer information, at least 'layer' column)
             2. from in-memory objects
@@ -330,7 +330,7 @@ class MultiLayerNetwork:
         self.init_codebook()
 
         self._verbose = verbose
-        self._max_bin_linktype = self.layers["binary"].max()
+        self._max_bin_layer = self.layers["binary"].max()
         # TODO work with this attribute to switch between weight and binary
         self.adjacency_element = adjacency_element
  
@@ -342,7 +342,7 @@ class MultiLayerNetwork:
             "use_polars" : self.use_polars,
             "_verbose" : self._verbose,
             "_layer_conversion_dict" : self._layer_conversion_dict,
-            "_max_bin_linktype" : self._max_bin_linktype
+            "_max_bin_layer" : self._max_bin_layer
         }
  
     def load(self, path: str) -> Tuple[Union[pd.DataFrame, pl.DataFrame], csr_matrix, pd.DataFrame]:
@@ -705,14 +705,14 @@ class MultiLayerNetwork:
         """
         if init:
             self.tic = datetime.now().timestamp()
-            print("Initialized timer.")
+            self.verboseprint("Initialized timer.")
         else:
             self.toc = datetime.now().timestamp()
             elapsed = self.toc - self.tic
             if message == "":
-                print(f"Time elapsed: {elapsed/1000:.3f} seconds.")
+                self.verboseprint(f"Time elapsed: {elapsed/1000:.3f} seconds.")
             else:
-                print(message + "\n" + f"Time elapsed: {elapsed:.5f} seconds.")
+                self.verboseprint(message + "\n" + f"Time elapsed: {elapsed:.5f} seconds.")
             self.tic = datetime.now().timestamp()
  
     def get_edgelist(self, edge_attribute: Optional[str] = "binary") -> Union[pd.DataFrame, pl.DataFrame]:
@@ -753,7 +753,7 @@ class MultiLayerNetwork:
         """
         # self.report_time(init=True)
 
-        # getting edges and binary linktypes
+        # getting edges and binary layer encoding
         edges = np.array(self.A.nonzero()).T
         weights = np.array([self.A.data]).T
         # self.report_time(message = "Getting data from sparse matrix.")
@@ -794,18 +794,18 @@ class MultiLayerNetwork:
                 edgelist["target"] = edgelist["target"].map(self.to_label)
             # self.report_time(message = "Remapping node labels.")
     
-            # add colnames and (human) readable link types
-            # if an edge has multiple linktypes, it is listed multiple times with the linktype code          
-            # convert all unique binary linktypes to their labels
+            # add colnames and (human) readable layer labels
+            # if an edge has multiple layers, it is listed multiple times with the layer code          
+            # convert all unique binary layer values to their labels
             link_dict = {}
             for link in edgelist["binary"].unique():
                 link_dict[link] = self.convert_layer_binary_to_list(link, output_type=edge_attribute)
-            # self.report_time(message = "Unfolded binary link identifiers.")
+            # self.report_time(message = "Unfolded binary layer identifiers.")
             # print(edgelist.head())
 
-            # get pairs (binary_linktype, label) of each link
+            # get pairs (binary_layer, label) of each link
             if self.use_polars:
-                # get pairs (binary_linktype, label) of each link
+                # get pairs (binary_layer, label) of each link
                 edgelist = edgelist.with_column(
                     pl.col("binary").map_dict(link_dict).alias(edge_attribute)
                 )
@@ -878,12 +878,12 @@ class MultiLayerNetwork:
         
         if edge_attributes:
             if edge_attribute_type == "binary":     
-                # obtain and add (human readable) link types
+                # obtain and add (human readable) layer labels
                 layer_dict = {}
                 for layer in set(g.es["layer"]):
                     layer_dict[layer] = self.convert_layer_binary_to_list(layer, output_type="layer")
 
-                # rewrite link types to human readable
+                # rewrite layer values to human readable
                 g.es["layer"] = [layer_dict[x] for x in g.es["layer"]]
             elif edge_attribute_type == "weight":
                 g.es["weight"] = g.es["layer"]
@@ -961,7 +961,7 @@ class MultiLayerNetwork:
             # always add "label" column
             nx.set_node_attributes(g, self._map_id_to_label, "label")
         
-        # obtain and add (human readable) link types use dict for optimization
+        # obtain and add (human readable) layer labels use dict for optimization
         link_dict = {}
         
         if edge_attributes:
@@ -976,9 +976,9 @@ class MultiLayerNetwork:
                         if weight in link_dict:
                             g[s][t]["layer"] = link_dict[weight]
                         else:
-                            link_types = self.convert_layer_binary_to_list(weight,output_type=layer_type)
-                            link_dict[weight] = link_types
-                            g[s][t]["layer"] = link_types
+                            layers = self.convert_layer_binary_to_list(weight, output_type=layer_type)
+                            link_dict[weight] = layers
+                            g[s][t]["layer"] = layers
                         # remove weights
                         d.pop("weight", None)
  
@@ -1017,7 +1017,7 @@ class MultiLayerNetwork:
             else:
                 return d[layer]
         except:
-            print(f'Error: invalid linktype found: {input_type} to {output_type}')
+            print(f'Error: invalid layer found: {input_type} to {output_type}')
             return None
     
     def convert_layer_binary_to_list(self, num: int, output_type: str = "layer") -> List[Any]:
@@ -1030,7 +1030,7 @@ class MultiLayerNetwork:
         Parameters:
             --------------
             num: int
-                integer number to be converted to binary and returned as linktypes
+                integer number to be converted to binary and returned as layers
             output_type: string, default "layer"
                 type of output. Options: "label", "layer" and "binary"
         Returns:
@@ -1041,7 +1041,7 @@ class MultiLayerNetwork:
 
         # sanity check, max value is 1111....1 with as many 1s as there are layers self.L converted to decimal
         if np.log2(float(num)) >= self.layers.index[-1]+1:
-            raise ValueError(f"Layer binary value {num} is not a valid linktype in the network.")
+            raise ValueError(f"Layer binary value {num} is not a valid layer in the network.")
 
         return [self.convert_layer_representation(2**i, input_type='binary', output_type=output_type)\
                  for i in range(self.layers.index[-1]+1) if int(num)&(2**i)>0]
@@ -1607,19 +1607,19 @@ class MultiLayerNetwork:
         self.g_layers["layer"] = self.g_layers.index+1
         self.g_layers["binary"] = self.g_layers.index.map(lambda i: int(2**i))
 
-        print(self.g_layers)
+        self.verboseprint(self.g_layers)
 
         for g in groups:
             b = self.g_layers.set_index("label")["binary"].loc[g]
-            print(f"Creating adjacency matrix for group layer {g}...")
+            self.verboseprint(f"Creating adjacency matrix for group layer {g}...")
             if g not in self.group_adjacency_matrix:
                 glA = self.get_layer_adjacency_matrix(g,layer_type="group",dtype=np.uint8)
             else:
                 glA = csr_matrix(self.group_adjacency_matrix[g],shape=(self.N,self.N),dtype=np.uint8)
-            print("Done.")
-            print(f"Adding {glA.nnz} edges to layer {g}...")
+            self.verboseprint("Done.")
+            self.verboseprint(f"Adding {glA.nnz} edges to layer {g}...")
             self.gA+=glA*b
-            print("Done.")
+            self.verboseprint("Done.")
 
 
         return MultiLayerNetwork(
