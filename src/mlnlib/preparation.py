@@ -10,7 +10,7 @@ with mln.py from a very general set of CSV files.
 
 It accepts an arbitrary number of nodelist and edgelist CSV input files, reads through them,
 and merges the node properties, and converts the edgelists to a scipy.sparse adjacency matrix.
-The conversion happens through a layer.csv file, that contains the different linktypes and their
+The conversion happens through a layer.csv file, that contains the different layers and their
 binary representation. If no nodelist or layer file is given, these are inferred from the edgelist.
 
 Every input CSV is assumed to have a header and no index col.
@@ -80,13 +80,21 @@ print(f"We are currently working in the {os.getcwd()} directory.")
 
 class RawCSVtoMLN:
     """
-    This class converts CSV nodelist and edgelist to fast readable input for the MLN class.
+    Convert raw CSV node/edge inputs into an MLN library on disk.
 
-    It accepts an arbitrary number of nodelist and edgelist CSV input files, reads through them,
-    and merges the node properties, and converts the edgelists to a scipy.sparse adjacency matrix
-    with integer elements that have a binary encoding for the layers.
+    This utility builds the three core artifacts consumed by MultiLayerNetwork:
+    - nodes.csv.gz (node attributes with at least 'label' and 'id')
+    - edges.npz (NxN csr_matrix with binary-encoded layers)
+    - layers.csv (layer definitions with 'layer', 'label', 'binary', and optional 'group')
 
-    Every input CSV is assumed to have a header and no index col.
+    It accepts an arbitrary number of node and edge CSV files, merges node properties,
+    and converts edge lists into a sparse adjacency matrix with integer data that encodes
+    layers as powers of two (binary encoding).
+
+    Assumptions
+    -----------
+    - All input CSVs have a header and no index column
+    - Column mappings can be provided via JSON or dict in the config
     """
     def __init__(
             self,
@@ -157,7 +165,17 @@ class RawCSVtoMLN:
         
     def init_layers(self) -> None:
         """
-        Either read layer file, or create rich layer dataframe from bare minimum input.
+        Initialize the layer dataframe.
+
+        If a prepared layer file is provided in the config, it is read directly.
+        Otherwise, a minimal layer definition is inferred or read from a raw file,
+        then enriched with binary encodings, groups, and long labels.
+
+        Side effects
+        ------------
+        - Sets self.layers (pd.DataFrame)
+        - May create self.layers_ungrouped and self.layer_mapping if grouped
+        - Persists the resulting CSV to layer_conf["output"] in output_folder
         """
 
         # if the layer file is not yet prepared
@@ -189,7 +207,7 @@ class RawCSVtoMLN:
                 self.layers_ungrouped = self.layers
                 self.layer_mapping = dict(zip(self.layers_ungrouped["layer"],self.layers_ungrouped["group_layer"]))
                 self.layers = pd.DataFrame(np.array([list(grps.keys()),list(grps.values())]).T,columns = ["layer","label"])
-            # creating different 2**i numbers for all linktypes for binary encoding
+            # creating different 2**i numbers for all layers for binary encoding
             self.layers["binary"] = self.layers.index.map(lambda i: int(2**i))
             if "group" not in self.layers:
                 self.layers["group"] = self.layers["label"]
@@ -216,8 +234,10 @@ class RawCSVtoMLN:
 
     def init_raw_layers_from_edges(self) -> None:
         """
-        This function reads the raw edgelist file and creates a layer dataframe
-        from the different linktypes.
+        Initialize a minimal layer dataframe from raw edge data.
+
+        This reads the raw edgelist to detect distinct layer identifiers and
+        constructs a basic dataframe with 'layer' and 'label'.
         """
         raise ValueError("To initialize layers from edgelist is not yet done.")
         # getting all layer types
@@ -233,8 +253,16 @@ class RawCSVtoMLN:
     # =============================
     def init_nodes(self) -> None:
         """
-        Read node dataframe from node_conf["files"]. If node_conf["files"] is empty,
-        create a node dataframe from the edgelist.
+        Build the node attribute dataframe from configured node files.
+
+        Reads and merges the configured node files, applies column mappings,
+        and ensures an 'id' column exists (0..N-1). The resulting dataframe
+        is assigned to self.nodes.
+
+        Raises
+        ------
+        ValueError
+            If no node files are configured.
         """
         print("Creating merged node attribute file...")
 
@@ -288,6 +316,15 @@ class RawCSVtoMLN:
     ###########################
 
     def init_edges(self) -> None:
+        """
+        Initialize empty adjacency and node mappings for edge loading.
+
+        Side effects
+        ------------
+        - Sets self.nodemap and self.nodemap_back
+        - Sets self.N (number of nodes)
+        - Initializes self.A as an NxN csr_matrix with dtype uint64
+        """
         # getting id <-> label mappings
         self.nodemap_back = dict(zip(self.nodes["id"], self.nodes['label']))
         self.nodemap = {v:k for k,v in self.nodemap_back.items()}
@@ -298,14 +335,21 @@ class RawCSVtoMLN:
     
     def adjacency_matrix(self, edgelist: pd.DataFrame, binary: int, symmetrize: bool = False) -> csr_matrix:
         """
-        This function creates the adjacency matrix representation of a graph
-        based on a pandas.DataFrame edgelist. The edgelist should be a plain array.
+        Construct a sparse adjacency matrix from an edgelist chunk.
+
+        Parameters
+        ----------
+        edgelist : pd.DataFrame
+            DataFrame with columns 'source' and 'target' (node labels).
+        binary : int
+            Power-of-two value corresponding to the current layer.
+        symmetrize : bool, default False
+            If True, enforce undirected edges by mirroring (i,j) and (j,i).
 
         Returns
         -------
-
-        A : scipy.sparse.csr_matrix
-            sparse adjacency matrix
+        scipy.sparse.csr_matrix
+            CSR adjacency matrix with data equal to `binary` for present edges.
         """
         # remapping labels to integer ids from 0 to N-1 to load into sparse CSR matrix
         i = pd.Series(map(lambda x: self.nodemap.get(x),edgelist["source"]))
@@ -340,12 +384,16 @@ class RawCSVtoMLN:
 
     def read_all_edges(self) -> None:
         """
-        This function loads all edgelists for the
-        different linktypes of the different layers, and subsequently
-        adds 2**i to the adjacency matrix for the edges, where 2**i corresponds
-        to the type of the edge from self.layers["binary"].
-        In the end, the function saves the scipy.sparse.csr_matrix type
-        adjacency matrix to the given location
+        Stream and accumulate all edges across configured files into self.A.
+
+        For each layer, chunks of the corresponding edge file(s) are read,
+        mapped to node IDs, converted to CSR blocks with the layer's binary
+        code, optionally symmetrized, and added to the full adjacency matrix.
+
+        Notes
+        -----
+        - If layer_conf["symmetrize_all"] is True, all layers are treated as undirected.
+        - Column mappings in edge_conf["colmap"] are applied per chunk for memory efficiency.
         """
 
         # check if symmetrize_all in layer_conf is str
@@ -413,12 +461,12 @@ class RawCSVtoMLN:
                             layer = l
                         else:
                             layer = self.layer_mapping[l]
-                        # linktype name
+                        # layer name
                         name = self.layers.set_index("layer").loc[layer]["label_long"]
                         binary = self.layers.set_index("layer").loc[layer]["binary"]
                         selection = chunk["layer"]==l
                         num_edges = (selection).sum()
-                        # contains values of binary_linktype / 0
+                        # contains values of binary_layer / 0
                         if num_edges>0:
                             A = self.adjacency_matrix(chunk[selection], binary, symmetrize=layer in self.layer_conf["symmetrize"])
                             print(f"\tAdding {A.nnz} edges to layer {layer}.")
@@ -445,7 +493,10 @@ class RawCSVtoMLN:
 
     def init_all(self) -> None:
         """
-        Read all components given in config, and save results to output folder if necessary.
+        Execute the full preparation pipeline based on the config.
+
+        Steps: init_layers() → init_nodes() → init_edges() → read_all_edges().
+        If the 'save' flag is set on the instance, save_all() is called at the end.
         """
         self.init_layers()
         print(f"LAYERS: {self.layers.shape[0]}")
@@ -460,21 +511,53 @@ class RawCSVtoMLN:
                 self.save_all()
 
     def save_layer_df(self, output: str) -> None:
+        """
+        Save the layer dataframe to CSV.
+
+        Parameters
+        ----------
+        output : str
+            Output CSV path.
+        """
         print("Saving layer dataframe...")
         self.layers.to_csv(output,index=False,header=True)
         print("Done.")
     
     def save_node_df(self, output: str) -> None:
+        """
+        Save the node dataframe to compressed CSV (gzip).
+
+        Parameters
+        ----------
+        output : str
+            Output CSV.GZ path.
+        """
         print("Saving node dataframe...")
         self.nodes.to_csv(output,index=False,header=True,compression="gzip")
         print("Done.")
 
     def save_edge_npz(self, output: str) -> None:
+        """
+        Save the adjacency matrix to NPZ.
+
+        Parameters
+        ----------
+        output : str
+            Output NPZ path.
+        """
         print("Saving edge adjacency matrix...")
         save_npz(output, self.A)
         print("Done.")
 
     def save_all(self, overwrite: bool = False) -> None:
+        """
+        Save layers, nodes, and edges to the configured output folder.
+
+        Parameters
+        ----------
+        overwrite : bool, default False
+            If False, refuse to overwrite existing output files.
+        """
         # if overwrite in attributes, set overwrite
         if "overwrite" in self.__dict__:
             overwrite = self.overwrite

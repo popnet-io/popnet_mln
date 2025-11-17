@@ -844,26 +844,30 @@ class MultiLayerNetwork:
     
     def to_igraph(self, directed: bool = True, edge_attributes: bool = True, node_attributes: bool = False, replace_igraph: bool = False, edge_attribute_type: str = "binary") -> ig.Graph:
         """
-        This function returns an igraph object of the sparse matrix stored in
-        self.A. Edge attributes (layer types) and node attributes (from
-        self.nodes) can be added to this object.
- 
-        Parameters:
-            -----------
-            directed : boolean, default True
-                mode of returned igraph object: True for directed, False for
-                undirected graph
-            edge_attributes : boolean, default True
-                True if weights or layer types should be stored in the igraph object
-            node_attributes : boolean, default False
-                True if node attributes should be added to igraph object
-            replace_igraph : boolean, default False
-                True if self.igraph should be replaced by the new igraph object
-            edge_attribute_type : string, default "binary"
-                Type of edge attribute. Options: "binary", "layer", "label" or "weight"
+        Create an igraph graph from the sparse matrix in self.A.
+
+        Edge attributes (layer types) and node attributes can optionally be
+        included in the resulting igraph object.
+
+        Parameters
+        ----------
+        directed : bool, default True
+            Whether the returned graph is directed.
+        edge_attributes : bool, default True
+            If True, include edge attributes.
+        node_attributes : bool, default False
+            If True, include node attributes from self.nodes.
+        replace_igraph : bool, default False
+            If True, replace self.igraph with the new object.
+        edge_attribute_type : {"binary", "weight"}, default "binary"
+            How to encode edge attributes:
+            - "binary": store list of layer IDs per edge (derived from binary encoding)
+            - "weight": store numeric edge weight and drop binary layer info
+
         Returns
-           -------
-            g : igraph object describing graph from input_data
+        -------
+        ig.Graph
+            Igraph object describing the network.
         """
  
         # set mode directed / undirected
@@ -914,29 +918,31 @@ class MultiLayerNetwork:
                     layer_type: str = "layer",
                     ignore_limit: bool = False) -> Optional[Union[nx.DiGraph, nx.Graph]]:
         """
-        This function returns a networkx object of the sparse matrix stored in
-        self.A. Edge attributes (layer types) and node attributes (from
-        self.nodes) can be added to this object.
- 
-        Parameters:
-            -----------
-            directed : boolean, default True
-                mode of returned igraph object: True for directed, False for
-                undirected graph
-            edge_attributes : boolean, default True
-                True if edge attributes (layer types) from should be
-                added to igraph object.
-            node_attributes : boolean, default False
-                True if node attributes should be added to networkx object
-                obtained from self.node_attributes The "label" column is always
-                added
-            ignore_limit : boolean, default False
-                False if nx object can have at most nx_node_limit nodes Set to
-                True to ignore this limit
- 
-        Returns:
-            -------
-            g : networkx object based on self.A
+        Create a NetworkX graph from the sparse matrix in self.A.
+
+        Edge attributes (layer types) and node attributes can optionally be
+        included in the resulting NetworkX graph.
+
+        Parameters
+        ----------
+        directed : bool, default True
+            Whether the returned graph is directed.
+        edge_attributes : bool, default True
+            If True, include edge attributes.
+        node_attributes : bool, default False
+            If True, include node attributes from self.nodes (the "label" attribute is always included).
+        edge_attribute_type : {"binary", "weight"}, default "binary"
+            - "binary": set an edge attribute "layer" as a list of layers present.
+            - "weight": set numeric "weight" and remove the binary layer info.
+        layer_type : {"layer", "label", "binary"}, default "layer"
+            Output representation for the "layer" attribute when edge_attribute_type="binary".
+        ignore_limit : bool, default False
+            If False, refuse to build graphs larger than nx_node_limit nodes (recommend igraph for large graphs).
+
+        Returns
+        -------
+        networkx.Graph or networkx.DiGraph or None
+            NetworkX object based on self.A, or None if the size limit is exceeded and ignore_limit is False.
         """
  
         if not ignore_limit and self.A.shape[0] > nx_node_limit:
@@ -1072,8 +1078,8 @@ class MultiLayerNetwork:
                 True if node attributes should be added to igraph object
             overwrite : boolean, default False
                 if True, overwrites existing files
-            edge_attribute_type : string, default "binary"
-                Type of edge attribute. Options: "binary", "layer", "label" or "weight"
+            edge_attribute_type : {"binary", "weight"}, default "binary"
+                How to encode edge attributes in the saved graph: "binary" or "weight".
             -------------
         """
         _, extension = os.path.splitext(file_name)
@@ -1095,12 +1101,11 @@ class MultiLayerNetwork:
     
     def export_edges(self, file_name: str) -> None:
         """
-        Write self.A to file called file_name. The file extension is read to
-        determine the type of output. Options are:
-        - ".npz" or no extension: Binary (default)
-        - ".csv" ".csv.gz": Edgelist format
-        Note: if self.igraph does not yet exist, an igraph object will be
-        generated
+        Export edges to a file inferred from the extension.
+
+        The file extension determines the output format:
+        - ".npz": Sparse adjacency matrix saved with scipy.sparse.save_npz
+        - ".csv" or ".csv.gz": Edgelist format as produced by get_edgelist(edge_attribute="layer")
  
         Parameters:
             -----------
