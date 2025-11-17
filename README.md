@@ -1,6 +1,6 @@
-# MLN
+# mlnlib
 
-Library for working with large multilayer networks.
+Memory-efficient Python library for working with large multilayer networks on computer with limited number of cores.
 
 Authors:
 * Eszter Bokányi
@@ -8,13 +8,13 @@ Authors:
 * Yuliia Kazmina
 
 Contact:
-`e.bokanyi@uva.nl`
+`e.bokanyi@liacs.leidenuniv.nl`
 
-The code is distirbuted under the MIT Licence and should be properly attributed and cited upon reuse - see LICENCE.md for details.
+The code is distributed under the MIT Licence and should be properly attributed and cited upon reuse - see LICENCE.md for details.
 
-## MultiLayeredNetwork class
+## MultiLayerNetwork class
 
-The `MultiLayeredNetwork` class from `src/mln.py` contains methods and attributes to work with a large
+The `MultiLayerNetwork` class from `src/mln.py` contains methods and attributes to work with a large
 multilayer network using different edge types and layers efficiently.
 
 The network has to be unweighted, but can be directed.
