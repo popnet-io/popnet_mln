@@ -61,6 +61,7 @@ The resulting files are saved to the output folder, if given, otherwise to the c
     * layers.csv: layer dataframe
 """
 
+from typing import Dict, List, Any, Optional
 import pandas as pd
 from scipy.sparse import csr_matrix, save_npz
 import numpy as np
@@ -89,7 +90,7 @@ class RawCSVtoMLN:
     """
     def __init__(
             self,
-            node_conf = dict(
+            node_conf: Dict[str, Any] = dict(
                 input_folder_prefix = "",
                 files = [],
                 colmap = "",
@@ -97,14 +98,14 @@ class RawCSVtoMLN:
                 main_file = 0,
                 output = ""
             ),
-            edge_conf = dict(
+            edge_conf: Dict[str, Any] = dict(
                 input_folder_prefix = "",
                 files = [],
                 colmap = "",
                 sep = ";",
                 output = ""
             ),
-            layer_conf = dict(
+            layer_conf: Dict[str, Any] = dict(
                 raw_file = "",
                 file = "",
                 output = "",
@@ -114,9 +115,9 @@ class RawCSVtoMLN:
                 sep = ",",
                 colors = ""
             ),
-            output_folder = "",
-            **kwargs
-        ):
+            output_folder: str = "",
+            **kwargs: Any
+        ) -> None:
 
         self.node_conf = node_conf
         self.edge_conf = edge_conf
@@ -154,7 +155,7 @@ class RawCSVtoMLN:
         return result
             
         
-    def init_layers(self):
+    def init_layers(self) -> None:
         """
         Either read layer file, or create rich layer dataframe from bare minimum input.
         """
@@ -213,7 +214,7 @@ class RawCSVtoMLN:
         self.layers = pd.read_csv(self.layer_conf["file"], index_col = None, header=0)
         print("Layer dataframe",self.layers.head(),self.layers.columns,end="\n")
 
-    def init_raw_layers_from_edges(self):
+    def init_raw_layers_from_edges(self) -> None:
         """
         This function reads the raw edgelist file and creates a layer dataframe
         from the different linktypes.
@@ -230,7 +231,7 @@ class RawCSVtoMLN:
 
     # Loading node attributes files
     # =============================
-    def init_nodes(self):
+    def init_nodes(self) -> None:
         """
         Read node dataframe from node_conf["files"]. If node_conf["files"] is empty,
         create a node dataframe from the edgelist.
@@ -286,7 +287,7 @@ class RawCSVtoMLN:
     ##### EDGES    ############
     ###########################
 
-    def init_edges(self):
+    def init_edges(self) -> None:
         # getting id <-> label mappings
         self.nodemap_back = dict(zip(self.nodes["id"], self.nodes['label']))
         self.nodemap = {v:k for k,v in self.nodemap_back.items()}
@@ -295,7 +296,7 @@ class RawCSVtoMLN:
         print(f"N is {self.N}")
         self.A = csr_matrix((self.N,self.N), dtype=np.uint64)
     
-    def adjacency_matrix(self, edgelist, binary, symmetrize=False):
+    def adjacency_matrix(self, edgelist: pd.DataFrame, binary: int, symmetrize: bool = False) -> csr_matrix:
         """
         This function creates the adjacency matrix representation of a graph
         based on a pandas.DataFrame edgelist. The edgelist should be a plain array.
@@ -337,7 +338,7 @@ class RawCSVtoMLN:
         """
         print(f"{name}: {round(sys.getsizeof(var)/1024**3,2)}GB")
 
-    def read_all_edges(self):
+    def read_all_edges(self) -> None:
         """
         This function loads all edgelists for the
         different linktypes of the different layers, and subsequently
@@ -442,7 +443,7 @@ class RawCSVtoMLN:
         #del self.A_dict,i,j,data
 
 
-    def init_all(self):
+    def init_all(self) -> None:
         """
         Read all components given in config, and save results to output folder if necessary.
         """
@@ -458,22 +459,22 @@ class RawCSVtoMLN:
             if self.save:
                 self.save_all()
 
-    def save_layer_df(self, output):
+    def save_layer_df(self, output: str) -> None:
         print("Saving layer dataframe...")
         self.layers.to_csv(output,index=False,header=True)
         print("Done.")
     
-    def save_node_df(self, output):
+    def save_node_df(self, output: str) -> None:
         print("Saving node dataframe...")
         self.nodes.to_csv(output,index=False,header=True,compression="gzip")
         print("Done.")
 
-    def save_edge_npz(self, output):
+    def save_edge_npz(self, output: str) -> None:
         print("Saving edge adjacency matrix...")
         save_npz(output, self.A)
         print("Done.")
 
-    def save_all(self, overwrite = False):
+    def save_all(self, overwrite: bool = False) -> None:
         # if overwrite in attributes, set overwrite
         if "overwrite" in self.__dict__:
             overwrite = self.overwrite

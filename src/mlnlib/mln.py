@@ -64,6 +64,7 @@ It is also possible to convert the network to igraph or networkx objects.
 """
 
 # importing libraries
+from typing import Optional, Union, List, Dict, Any, Tuple
 import pandas as pd
 import polars as pl
 import numpy as np
@@ -93,18 +94,18 @@ ego_depth_limit = 3
 class MultiLayerNetwork:
     def __init__(
         self, 
-        nodes = "",
-        edges = "",
-        layers = "",
-        load_from_library = False,
-        library_path = "",
-        load_from_config = False,
-        config_path = "",
-        verbose = False,
-        adjacency_element = "binary",
-        use_polars = False,
-        **kwargs
-    ):
+        nodes: Union[str, pd.DataFrame, pl.DataFrame] = "",
+        edges: Union[str, csr_matrix] = "",
+        layers: Union[str, pd.DataFrame] = "",
+        load_from_library: bool = False,
+        library_path: str = "",
+        load_from_config: bool = False,
+        config_path: str = "",
+        verbose: bool = False,
+        adjacency_element: str = "binary",
+        use_polars: bool = False,
+        **kwargs: Any
+    ) -> None:
         """
         This class contains methods and attributes to work with a large
         multilayer network using different edge types and layers efficiently.
@@ -344,7 +345,7 @@ class MultiLayerNetwork:
             "_max_bin_linktype" : self._max_bin_linktype
         }
  
-    def load(self, path):
+    def load(self, path: str) -> Tuple[Union[pd.DataFrame, pl.DataFrame], csr_matrix, pd.DataFrame]:
         """
         If load_from_library is True, this function loads nodes, edges, and layers.
         
@@ -355,12 +356,12 @@ class MultiLayerNetwork:
 
         Returns:
         --------
-            nodes : string or None
-                resulting path to a nodelist with attributes
-            edges : string or None
-                resulting path to an edgelist / adjacency matrix
-            layers : string or None
-                resulting path to a list of layers
+            nodes : pd.DataFrame or pl.DataFrame
+                node attributes dataframe
+            edges : csr_matrix
+                sparse adjacency matrix
+            layers : pd.DataFrame
+                layer information dataframe
         """
 
         # check if save_path exists
@@ -423,7 +424,7 @@ class MultiLayerNetwork:
 
         return nodes, edges, layers
                 
-    def init_layer_dict(self):
+    def init_layer_dict(self) -> None:
         """
         Initialize dictionary for efficient conversion from layer, label, and 
         binary layer representations to each other.
@@ -457,7 +458,7 @@ class MultiLayerNetwork:
         }
     
     
-    def init_codebook(self):
+    def init_codebook(self) -> None:
         """
         # Initialize self.codebook with data from codebook. File should be .csv.
         # If no (valid) file is given, self.codebook = None
@@ -485,13 +486,13 @@ class MultiLayerNetwork:
     
     def get_filtered_network(
             self, 
-            nodes_selected=None, 
-            layers_selected=[], 
-            groups_selected=[], 
-            node_type="label",
-            layer_type="label",
-            keep_node_alignment = False
-            ):
+            nodes_selected: Optional[List[Any]] = None, 
+            layers_selected: List[Any] = [], 
+            groups_selected: List[str] = [], 
+            node_type: str = "label",
+            layer_type: str = "label",
+            keep_node_alignment: bool = False
+            ) -> 'MultiLayerNetwork':
         """
         Returns MultiLayerNetwork based on node and edge filtering.
  
@@ -593,7 +594,7 @@ class MultiLayerNetwork:
  
         return f
     
-    def get_layer_adjacency_matrix(self, layer, layer_type = 'layer', store = False, dtype='int64'):
+    def get_layer_adjacency_matrix(self, layer: Any, layer_type: str = 'layer', store: bool = False, dtype: str = 'int64') -> csr_matrix:
         """
         Creates a binary adjacency matrix for one of the layers or one of the groups.
 
@@ -661,7 +662,7 @@ class MultiLayerNetwork:
 
         return A_layer
     
-    def clear_layer_adjacency_matrices(self):
+    def clear_layer_adjacency_matrices(self) -> None:
         """
         Clears all layer adjacency matrices.
 
@@ -670,16 +671,16 @@ class MultiLayerNetwork:
         """
         self.layer_adjacency_matrix = {}
 
-    def clear_group_adjacency_matrices(self):
+    def clear_group_adjacency_matrices(self) -> None:
         """
         Clears all group adjacency matrices.
 
         This method resets the group adjacency matrix attribute to an empty dictionary, 
         effectively removing all previously stored group adjacency matrices.
         """
-        self.group_adjacency_matrix_adjacency_matrix = {}
+        self.group_adjacency_matrix = {}
 
-    def clear_all_adjacency_matrices(self):
+    def clear_all_adjacency_matrices(self) -> None:
         """
         Clears all adjacency matrices, group and layer.
 
@@ -689,7 +690,7 @@ class MultiLayerNetwork:
         self.clear_layer_adjacency_matrices()
         self.clear_group_adjacency_matrices()
     
-    def report_time(self, message = "", init=False):
+    def report_time(self, message: str = "", init: bool = False) -> None:
         """
         This is a helper function for optimization time measurements.
 
@@ -714,22 +715,41 @@ class MultiLayerNetwork:
                 print(message + "\n" + f"Time elapsed: {elapsed:.5f} seconds.")
             self.tic = datetime.now().timestamp()
  
-    def get_edgelist(self, edge_attribute = "binary"):
+    def get_edgelist(self, edge_attribute: Optional[str] = "binary") -> Union[pd.DataFrame, pl.DataFrame]:
         """
-        This function returns a  pandas dataframe containing the edge list
-        representing sparse matrix stored in self.A. 
+        Convert the sparse adjacency matrix to an edgelist DataFrame.
+
+        Extracts all edges from self.A and returns them in tabular format with
+        source and target node labels and layer information.
 
         Parameters:
-            -----------
-            edge_attribute : string, default "binary"
-                controls what column is returned in the dataframe. Possible
-                values are "binary", "layer", "label", and "weight". If None,
-                only the source and target columns are returned.
+        -----------
+            edge_attribute : str or None, default "binary"
+                Controls the edge attribute column in the output:
+                - "binary": Binary encoded layer value (integer)
+                - "layer": Layer ID(s) as list
+                - "label": Human-readable layer name(s) as list
+                - "weight": Edge weight (for weighted networks)
+                - None: Only source and target columns (no attributes)
  
-        Returns
-           -------
-            edgelist : pandas dataframe containig the edge list representing self.A
-                columns are source, target, and the one specified in edge_attribute
+        Returns:
+        --------
+            pd.DataFrame or pl.DataFrame (depending on use_polars setting)
+                Edgelist with columns:
+                - "source": Source node label
+                - "target": Target node label
+                - edge_attribute: As specified (if not None)
+                
+                Note: For "layer" and "label" options, edges with multiple layers
+                are exploded into multiple rows (one per layer).
+
+        Example:
+        --------
+            >>> edgelist = mln.get_edgelist(edge_attribute="label")
+            >>> print(edgelist.head())
+              source  target        label
+            0    100     101   friendship
+            1    100     102      kinship
         """
         # self.report_time(init=True)
 
@@ -822,7 +842,7 @@ class MultiLayerNetwork:
         
         return edgelist
     
-    def to_igraph(self, directed=True, edge_attributes=True, node_attributes=False, replace_igraph=False, edge_attribute_type="binary"):
+    def to_igraph(self, directed: bool = True, edge_attributes: bool = True, node_attributes: bool = False, replace_igraph: bool = False, edge_attribute_type: str = "binary") -> ig.Graph:
         """
         This function returns an igraph object of the sparse matrix stored in
         self.A. Edge attributes (layer types) and node attributes (from
@@ -887,12 +907,12 @@ class MultiLayerNetwork:
         return g
  
     def to_networkx(self, 
-                    directed = True, 
-                    edge_attributes = True, 
-                    node_attributes = False, 
-                    edge_attribute_type = "binary",
-                    layer_type = "layer",
-                    ignore_limit = False):
+                    directed: bool = True, 
+                    edge_attributes: bool = True, 
+                    node_attributes: bool = False, 
+                    edge_attribute_type: str = "binary",
+                    layer_type: str = "layer",
+                    ignore_limit: bool = False) -> Optional[Union[nx.DiGraph, nx.Graph]]:
         """
         This function returns a networkx object of the sparse matrix stored in
         self.A. Edge attributes (layer types) and node attributes (from
@@ -964,7 +984,7 @@ class MultiLayerNetwork:
  
         return g
     
-    def convert_layer_representation(self, layer, input_type="layer", output_type="binary"):
+    def convert_layer_representation(self, layer: Union[Any, List[Any]], input_type: str = "layer", output_type: str = "binary") -> Union[Any, List[Any], None]:
         """
         This function converts a single layer type or list of layer types to
         another representation.
@@ -1000,7 +1020,7 @@ class MultiLayerNetwork:
             print(f'Error: invalid linktype found: {input_type} to {output_type}')
             return None
     
-    def convert_layer_binary_to_list(self,num,output_type="layer"):
+    def convert_layer_binary_to_list(self, num: int, output_type: str = "layer") -> List[Any]:
         """
         Based on the integer binary layer type, returns a list with the layers.
  
@@ -1027,12 +1047,12 @@ class MultiLayerNetwork:
                  for i in range(self.layers.index[-1]+1) if int(num)&(2**i)>0]
     
     def save_to_graphml(self, 
-                        file_name, 
-                        directed = True, 
-                        edge_attributes = True, 
-                        node_attributes = False, 
-                        overwrite = False, 
-                        edge_attribute_type="binary"):
+                        file_name: str, 
+                        directed: bool = True, 
+                        edge_attributes: bool = True, 
+                        node_attributes: bool = False, 
+                        overwrite: bool = False, 
+                        edge_attribute_type: str = "binary") -> None:
         """
         Save self.igraph to GraphML file called file_name. This can be read into 
         Gephi or other external software.
@@ -1073,7 +1093,7 @@ class MultiLayerNetwork:
         else:
             raise ValueError(f"Error: {extension} is not a valid file extension for graphml saving.")
     
-    def export_edges(self, file_name):
+    def export_edges(self, file_name: str) -> None:
         """
         Write self.A to file called file_name. The file extension is read to
         determine the type of output. Options are:
@@ -1110,7 +1130,7 @@ class MultiLayerNetwork:
         else:
             raise ValueError(f"Error: {extension} is not a valid file extension for edge saving.")
              
-    def export_nodes(self, file_name):
+    def export_nodes(self, file_name: str) -> None:
         """
         Write self.nodes to file to .csv or .csv.gz file
 
@@ -1141,7 +1161,7 @@ class MultiLayerNetwork:
         else:
             raise ValueError(f"Error: {extension} is not a valid file extension for node saving.")
             
-    def save(self, path = "", overwrite = False, **kwargs):
+    def save(self, path: str = "", overwrite: bool = False, **kwargs: Any) -> None:
         """
         This function saves the MultiLayerNetwork instance to a given path.
         It can be read from this path later with the library mode.
@@ -1195,7 +1215,7 @@ class MultiLayerNetwork:
         self.export_layers(layer_file)
         self.export_codebook(codebook_file)
 
-    def export_layers(self, file_name):
+    def export_layers(self, file_name: str) -> None:
         """
         This function exports the layer information to a csv file.
 
@@ -1207,7 +1227,7 @@ class MultiLayerNetwork:
         """
         self.layers.to_csv(file_name, index=False, header=True)
 
-    def export_codebook(self, file_name):
+    def export_codebook(self, file_name: str) -> None:
         """
         This function exports the codebook to a csv file.
 
@@ -1220,7 +1240,7 @@ class MultiLayerNetwork:
         if self.codebook is not None:
             self.codebook.to_csv(file_name, index=False, header=True)
         
-    def get_egonetwork(self, ego_label, depth=1, return_list=False, ignore_limit=False):
+    def get_egonetwork(self, ego_label: Any, depth: int = 1, return_list: bool = False, ignore_limit: bool = False) -> Union['MultiLayerNetwork', List[Any]]:
         """
         Starting out from a given node, this function returns the network at a
         given depth around that selected node.
@@ -1269,34 +1289,39 @@ class MultiLayerNetwork:
         else:
             return self.get_filtered_network(nodes_selected = selected)
     
-    def create_affiliation_matrix(self, key, affil_edgelist):
+    def create_affiliation_matrix(self, key: str, affil_edgelist: List[Tuple[Any, Any]]) -> None:
         """
-        This method takes a node label -> affiliation bipartite edgelist, and
-        creates scipy sparse representation for it, storing the mapping of
-        affiliation ids in a dict.
+        Create a bipartite affiliation matrix for node-to-entity relationships.
+
+        This method creates a sparse matrix representing affiliations between network
+        nodes and external entities (e.g., workplaces, organizations, locations).
  
         Parameters:
         -----------
             key : str
-                the name of the bipartite structure for storage
-            affil_edgelist : list[list]
-                list of 2-tuples containing bipartite edgelist
-                first node in the edges should correspond to a label in the mln instance
-                second node can be anything, e.g. work IDs
+                Name identifier for this affiliation type (e.g., "workplace", "school").
+            affil_edgelist : list of tuples
+                List of (node_label, affiliation_id) pairs where:
+                - node_label: Must correspond to a node label in the network
+                - affiliation_id: Can be any hashable identifier for the affiliation
  
-        Returns
+        Returns:
         -------
             None
+                Modifies the object by adding/updating self.affiliation_matrix[key]
  
-        Creates a dictionary entry with key `key` into  mln.affiliation_matrix
-        attribute with the following structure:
- 
-        mln.affiliation_matrix[key] = {
-            'A': bipartite sparse adjacency matrix, mln.N times M
-            'M' : if M is the number of unique elements in the second class
-            'column_map_label_to_nid' : mapping IDs in second class to matrix column integer indices
-            'column_map_nid_to_label' : mapping column integer indices back to second class IDs
-        }
+        Creates/Updates:
+        ----------------
+            self.affiliation_matrix[key] : dict containing:
+                - 'A': sparse matrix of shape (N, M) where N=number of nodes, M=number of affiliations
+                - 'M': number of unique affiliations
+                - 'column_label_to_id': maps affiliation IDs to matrix column indices
+                - 'column_id_to_label': maps column indices back to affiliation IDs
+
+        Example:
+        --------
+            >>> workplace_edges = [(100, "CompanyA"), (101, "CompanyA"), (102, "CompanyB")]
+            >>> mln.create_affiliation_matrix("workplace", workplace_edges)
         """
         if not hasattr(self,"affiliation_matrix"):
             self.affiliation_matrix = {}
@@ -1324,41 +1349,59 @@ class MultiLayerNetwork:
  
         self.affiliation_matrix[key]['A'] = A
  
-    def get_binary_adjacency(self, dtype='int64'):
+    def get_binary_adjacency(self, dtype: str = 'int64') -> csr_matrix:
         """
-        Downcast all values in self.A to a binary value. Only 1s occur in the
-        resulting matrix.
+        Convert the multilayer adjacency matrix to a binary (0/1) format.
+
+        Collapses all layer information, converting the matrix to indicate only
+        whether an edge exists (1) or not (0), regardless of layers.
 
         Parameters:
-            -------------
-            dtype : string, default "int64"
-                datatype to downcast to
-            -------------
+        -----------
+            dtype : str, default "int64"
+                Data type for the resulting matrix. Use smaller types like 'int8'
+                to reduce memory usage.
         
         Returns:
-            -------------
-                A : sparsegraph A which is a downcasted version of self.A
+        --------
+            scipy.sparse.csr_matrix
+                Binary adjacency matrix where all non-zero values become 1.
 
+        Example:
+        --------
+            >>> binary_A = mln.get_binary_adjacency(dtype='int8')
+            >>> # Original: A[i,j] = 7 (layers 0,1,2)
+            >>> # Result: binary_A[i,j] = 1
         """
         if dtype != 'int64':
             return self.A.sign().astype(dtype)
         else:
             return self.A.sign()
     
-    def to_id(self, labels):
+    def to_id(self, labels: Union[Any, List[Any]]) -> Union[int, List[int]]:
         """
-        This function converts a label, or list of labels to their corresponding
-        ids
+        Convert node label(s) to their corresponding integer ID(s).
+
+        This is the preferred method for converting between node labels and IDs.
+        While the underlying mapping dictionary (self._map_label_to_id) is accessible,
+        using this method ensures cleaner code and compatibility.
  
         Parameters:
-            -----------
-            labels : int or list, no default
-                A label or list of labels to convert to NIDs
+        -----------
+            labels : any type or list
+                A single node label or list of node labels to convert to integer IDs.
+                Labels can be any hashable type (int, str, etc.).
+
         Returns:
-            -----------
-            ids : int or list
-                ids corresponding to node ids of given labels
-         """
+        --------
+            int or list of int
+                Integer ID(s) corresponding to the given label(s).
+
+        Example:
+        --------
+            >>> node_id = mln.to_id("person_123")
+            >>> node_ids = mln.to_id(["person_123", "person_456"])
+        """
  
         if type(labels) != list:
             return self._map_label_to_id[labels]
@@ -1366,20 +1409,29 @@ class MultiLayerNetwork:
             return [self._map_label_to_id[elem] for elem in labels]
  
         
-    def to_label(self, ids):
+    def to_label(self, ids: Union[int, List[int]]) -> Union[Any, List[Any]]:
         """
-        This function converts an id, or list of ids to their corresponding
-        labels
+        Convert integer node ID(s) to their corresponding label(s).
+
+        This is the preferred method for converting between node IDs and labels.
+        While the underlying mapping dictionary (self._map_id_to_label) is accessible,
+        using this method ensures cleaner code and compatibility.
  
         Parameters:
-            -----------
-            nids : int or list, no default
-                An id or list of ids to convert to labels
+        -----------
+            ids : int or list of int
+                A single integer node ID or list of integer node IDs to convert to labels.
+
         Returns:
-            -----------
-            labels : int or list
-                labels corresponding to user ids of given id(s)
- 
+        --------
+            any type or list
+                Node label(s) corresponding to the given ID(s).
+                Labels can be any type (int, str, etc.) as specified in the nodes DataFrame.
+
+        Example:
+        --------
+            >>> node_label = mln.to_label(0)
+            >>> node_labels = mln.to_label([0, 1, 2])
         """
  
         if type(ids) != list:
@@ -1387,11 +1439,24 @@ class MultiLayerNetwork:
         else:
             return [self._map_id_to_label[elem] for elem in ids]
 
-    def get_degrees(self, selected_nodes=[]):
+    def get_degrees(self, selected_nodes: List[Any] = []) -> Dict[Any, int]:
         """
-        Calculate degree for selected nodes.
+        Calculate degree for selected nodes across all layers.
 
-        If you also want to select layers, we suggest using the get_filtered_network method first.
+        Parameters:
+        -----------
+            selected_nodes : list, default []
+                List of node labels to calculate degrees for. If empty, calculates for all nodes.
+
+        Returns:
+        --------
+            dict
+                Dictionary mapping node labels to their degrees (total number of edges).
+        
+        Note:
+        -----
+            If you want to calculate degrees for specific layers only, 
+            use get_filtered_network() first to select the desired layers.
         """
         if len(selected_nodes)==0:
             selected_nodes = list(self.nodes["label"])
@@ -1400,22 +1465,29 @@ class MultiLayerNetwork:
 
         return dict(zip([self.to_label(n) for n in selected_nodes], self.A[selected_nodes, :].sign().sum(axis=0).tolist()[0]))
 
-    def get_clustering_coefficient(self, selected_nodes=[],batchsize=100000):
+    def get_clustering_coefficient(self, selected_nodes: List[Any] = [], batchsize: int = 100000) -> Dict[Any, float]:
         """
-        Calculate clustering coefficient for selected nodes with selected layers.
+        Calculate clustering coefficient for selected nodes across all layers.
+
+        The clustering coefficient measures the degree to which nodes tend to cluster together.
+        It is calculated as the ratio of triangles to the number of possible triangles.
 
         Parameters:
         -----------
-            selected_nodes : list, default None
-                which nodes to compute cc for, if None, use all
+            selected_nodes : list, default []
+                List of node labels to compute clustering coefficient for. If empty, computes for all nodes.
             batchsize : int, default 100000
-                chunks in which to split up matrix multiplication bc of memory
-                issues
+                Chunk size for matrix multiplication to manage memory usage.
 
         Returns:
         --------
-            dict of label -> cc values
-            
+            dict
+                Dictionary mapping node labels to their clustering coefficient values.
+        
+        Note:
+        -----
+            If you want to calculate clustering for specific layers only,
+            use get_filtered_network() first to select the desired layers.
         """
         if len(selected_nodes)==0:
             selected_nodes = list(self.nodes["label"])
@@ -1458,18 +1530,32 @@ class MultiLayerNetwork:
 
         return dict(zip([self.to_label(n) for n in selected_nodes],clustering_coefficient))
 
-    def get_supra_adjacency_matrix(self,dtype='int64'):
+    def get_supra_adjacency_matrix(self, dtype: str = 'int64') -> csr_matrix:
         """
-        Decompressing the binary format into a supra-adjacency matrix.
+        Convert the multilayer network to a supra-adjacency matrix representation.
+
+        Creates a block matrix where each block represents a layer, with additional
+        coupling connections between the same node across different layers. This
+        representation treats the multilayer network as a single large graph.
 
         Parameters: 
         ------------
-            dtype : string, default "int64"
-                datatype to downcast to
+            dtype : str, default "int64"
+                Data type for the matrix. Use smaller types (e.g., 'int8') to reduce memory.
 
-        Returns
-        -------
-            0/1 supra-adjacency matrix of shape (self.L*self.N,self.L*self.N)
+        Returns:
+        --------
+            scipy.sparse.csr_matrix
+                Binary supra-adjacency matrix of shape (L*N, L*N) where:
+                - L is the number of layers
+                - N is the number of nodes
+                - Diagonal blocks contain layer-specific adjacencies
+                - Off-diagonal blocks contain inter-layer couplings
+
+        Note:
+        -----
+            This matrix can be very large (L*N × L*N). Consider memory constraints
+            when using this method with large networks.
         """
         # layer couplings
         self.sA = kron(np.ones((self.L,self.L)),eye(self.N)) - eye(self.L * self.N)
@@ -1487,13 +1573,32 @@ class MultiLayerNetwork:
 
         return self.sA
     
-    def get_grouped_mln(self):
+    def get_grouped_mln(self) -> 'MultiLayerNetwork':
         """
-        Returns an MLN object with the same nodelist, 
-        but modified edge adjacency matrix and layer
-        dataframe according to the 'group' column in
-        self.layers. Combines edges whose layertype belongs to
-        the group to into one single layer.
+        Create a new MultiLayerNetwork with layers aggregated by group.
+
+        Returns a network with the same nodes but with layers combined according to
+        the 'group' column in self.layers. All layers within the same group are
+        merged into a single layer.
+
+        Returns:
+        --------
+            MultiLayerNetwork
+                New network instance where:
+                - Nodes remain unchanged
+                - Each unique group becomes a single layer
+                - Edges from all layers in a group are combined
+                - New binary encoding is assigned to grouped layers
+
+        Requires:
+        ---------
+            self.layers must have a 'group' column
+
+        Example:
+        --------
+            If layers have groups: {"friendship": ["facebook", "twitter"], 
+                                     "kinship": ["sibling", "parent"]},
+            the result will have 2 layers: "friendship" and "kinship".
         """
         self.gA = csr_matrix((self.N,self.N),dtype=np.uint8)
         groups = self.layers["group"].unique()
@@ -1523,11 +1628,38 @@ class MultiLayerNetwork:
             layers = self.g_layers
         )
     
-    def get_excess_closure(self, selected_nodes=[], node_type="label", selected_layers=[], layer_type="layer", batchsize=100000):
+    def get_excess_closure(self, selected_nodes: List[Any] = [], node_type: str = "label", selected_layers: List[Any] = [], layer_type: str = "layer", batchsize: int = 100000) -> Dict[str, Dict[Any, float]]:
         """
-        Calculate the measure called excess closure for selected nodes and layers.
+        Calculate excess closure metric for selected nodes and layers.
 
-        See Bokany et al. 2023 for more details.
+        Excess closure measures the extent to which triangles in a multilayer network
+        use multiple layers beyond what would be expected from single-layer clustering.
+        It compares the actual clustering coefficient to the clustering that would occur
+        if each layer operated independently.
+
+        Parameters:
+        -----------
+            selected_nodes : list, default []
+                List of node identifiers (labels or ids). If empty, uses all nodes.
+            node_type : str, default "label"
+                Type of node identifier. Options: "label" or "id".
+            selected_layers : list, default []
+                List of layer identifiers. If empty, uses all layers.
+            layer_type : str, default "layer"
+                Type of layer identifier. Options: "layer", "label", "binary", or "group".
+            batchsize : int, default 100000
+                Chunk size for matrix multiplication to manage memory usage.
+
+        Returns:
+        --------
+            dict
+                Dictionary with two keys:
+                - "clustering_coefficient": dict mapping node labels to clustering coefficients
+                - "excess_closure": dict mapping node labels to excess closure values
+
+        Note:
+        -----
+            See Bokányi et al. (2023) for methodological details.
         """
 
         # ===================== input handling =========================
@@ -1647,11 +1779,25 @@ class MultiLayerNetwork:
             "excess_closure": dict(zip([self.to_label(n) for n in selected_nodes], excess_closure))
         }
 
-    def add_nodes(self,nodes_df):
+    def add_nodes(self, nodes_df: pd.DataFrame) -> None:
+        """
+        Add new nodes to the network without connections.
+
+        Parameters:
+        -----------
+            nodes_df : pd.DataFrame
+                DataFrame with new nodes. Must contain at least a 'label' column.
+                Additional node attributes can be included as columns.
+
+        Note:
+        -----
+            New nodes are added with no edges. The adjacency matrix is expanded
+            and node mappings are updated accordingly.
+        """
         if "label" not in nodes_df:
             raise ValueError("The dataframe should contains at least a column called label.")
         M = nodes_df.shape[0]
-        nodes_df["id"] = range(self.N,self.N+M)
+        nodes_df["id"] = range(self.N, self.N+M)
         self.N = self.N + M
         self._map_id_to_label.update(dict(zip(nodes_df["id"],nodes_df["label"])))
         self._map_label_to_id.update(dict(zip(nodes_df["label"],nodes_df["id"])))
@@ -1659,9 +1805,27 @@ class MultiLayerNetwork:
         self.nodes.index = self.nodes["id"]
         self.A = block_diag([self.A,csr_matrix((M,M))],format="csr")
 
-    def remove_nodes(self,nodes):
-        if any(self.nodes.index!=self.nodes.id):
-            raise ValueError("Node dataframe not aligned correcly for operation.")
+    def remove_nodes(self, nodes: List[Any]) -> None:
+        """
+        Remove nodes from the network.
+
+        Parameters:
+        -----------
+            nodes : list
+                List of node labels to remove from the network.
+
+        Note:
+        -----
+            This operation removes nodes and all their associated edges,
+            then reindexes remaining nodes. Node IDs are reassigned sequentially.
+
+        Raises:
+        -------
+            ValueError
+                If node dataframe index is not properly aligned with node IDs.
+        """
+        if any(self.nodes.index != self.nodes.id):
+            raise ValueError("Node dataframe not aligned correctly for operation.")
         mask = ~self.nodes["label"].isin(nodes)
         self.nodes = self.nodes[mask].copy()
         self.nodes.reset_index(drop=True,inplace=True)
@@ -1671,24 +1835,39 @@ class MultiLayerNetwork:
         self.N = mask.sum()
         self.A = self.A[mask,:][:,mask]
 
-    def get_aggregated_network(self, aggregation_column=None, keep_layers = False, convert_A = "none"):
+    def get_aggregated_network(self, aggregation_column: Optional[str] = None, keep_layers: bool = False, convert_A: str = "none") -> 'MultiLayerNetwork':
             """
-            Return an aggregated network over a certain column in self.nodes.
+            Return an aggregated network based on a node attribute column.
 
-            It looks at unique values in the column, and aggregates the edges for
-            each unique value. The resulting network has as many nodes as there
-            are unique values in the column. The edges are aggregated by counting all
-            edges from all layers that go between the groups.
+            Creates a new network where nodes represent unique values in the specified
+            aggregation column. Edges are aggregated by counting connections between
+            groups from the original network.
 
-            The resulting network is a MultiLayerNetwork object, but instead of the binary
-            adjacency matrix, it has a weighted adjacency matrix, where the weights are
-            the edge counts between the groups.
-            
             Parameters:
-                -------------
-                aggregation_column : string, default None
-                    the column in self.nodes based on which the edges should be aggregated
-                -------------
+            -----------
+                aggregation_column : str, default None
+                    Column name in self.nodes to aggregate by (e.g., "region", "age_group").
+                keep_layers : bool, default False
+                    Whether to preserve layer information (currently not implemented).
+                convert_A : str, default "none"
+                    How to convert the adjacency matrix:
+                    - "none": Keep binary layer encoding
+                    - "boolean": Convert to binary (0/1) presence/absence
+                    - "multiplexity": Count number of layers per edge
+
+            Returns:
+            --------
+                MultiLayerNetwork
+                    Aggregated network where:
+                    - Nodes represent unique values from aggregation_column
+                    - Node 'weight' attribute contains count of original nodes
+                    - Edges represent aggregated connections between groups
+                    - adjacency_element is set to "weight"
+
+            Raises:
+            -------
+                ValueError
+                    If aggregation_column is not found in self.nodes
             """
 
             if not aggregation_column in self.nodes.columns:
