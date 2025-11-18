@@ -1,6 +1,6 @@
 # mlnlib
 
-Memory-efficient Python tools for working with large multilayer networks on machines with limited memory/cores.
+Memory-efficient Python tools by the POPNET/PLANET-NL team for working with large multilayer networks on machines with limited memory/cores.
 
 Authors:
 * Eszter Bokányi
@@ -30,7 +30,7 @@ pip install mlnlib
 
 ## Loading data
 
-There are three supported ways to initialize a `MultiLayerNetwork` (class defined in `mlnlib/mln.py`).
+There are three supported ways to initialize a `MultiLayerNetwork` (class defined in `src/mlnlib/mln.py`).
 
 1) Load a prepared library from disk
 
