@@ -372,7 +372,7 @@ class RawCSVtoMLN:
         if symmetrize:
             A = csr_matrix(A>0, dtype=np.uint64)
         #  we multiply to 1/0 matrix by that number so that it corresponds to a certain edgetype
-        A *= binary
+        A *= int(binary)
 
         return A
     
