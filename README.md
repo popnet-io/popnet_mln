@@ -254,4 +254,4 @@ See `test/config.json` for configuration schema.
 
 ## Citation
 
-If you use this library in academic work, please cite the POPNET/PLANET‑NL project (https://planetnl.org) and this repository. See `LICENSE.md` for details.
+If you use this library in academic work, please cite the POPNET/PLANET-NL project (https://planetnl.org) and this repository. Citation metadata is available in `CITATION.cff`.

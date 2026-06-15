@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: "If you use mlnlib in academic work, please cite it using the metadata below."
+title: "mlnlib"
+type: software
+version: "0.3.0"
+authors:
+  - family-names: Bokanyi
+    given-names: Eszter
+    email: e.bokanyi@liacs.leidenuniv.nl
+  - family-names: de Jong
+    given-names: Rachel
+  - family-names: Kazmina
+    given-names: Yuliia
+license: MIT
+repository-code: "https://github.com/planet-nl/mlnlib"
+abstract: "Memory-efficient library for loading and working with large unweighted multilayer networks."
+preferred-citation:
+  type: software
+  title: "POPNET MultiLayerNetwork Python Class"
+  authors:
+    - family-names: Bokanyi
+      given-names: Eszter
+    - family-names: Kazmina
+      given-names: Yuliia
+    - family-names: de Jong
+      given-names: Rachel
+  year: 2023
+  version: "v2.0"
+  doi: 10.5281/zenodo.10838865
+  url: "https://doi.org/10.5281/zenodo.10838865"
