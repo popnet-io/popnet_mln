@@ -88,7 +88,7 @@ The package was developed in the context of the POPNET/PLANET-NL project, where 
 
 By combining sparse encodings for multilayer edges with dataframe-native node attributes, `mlnlib` supports workflows that bridge tabular preprocessing and graph analysis. This is especially useful when researchers need to iterate between node attribute filters and multilayer edge selection before applying downstream methods.
 
-The toolkit has been used in multiple recent studies on population-scale social structure, mobility, inequality, migration attitudes, and online-versus-register-based social networks [@bokanyi2026fragmentation; @kazmina2025mobility; @menyhert2025connectivity; @debel2025kinship; @kazmina2024contactthreat; @socnet_pii2024; @bokanyi2023anatomy]. The population-scale networks containing all family, household, neighbor, work, and school ties of the entire Netherlands between 2009 and 2021 have been made available in the intermediate format directly readable by the `mlnlib` package [@bokanyi2025planetnl].
+The toolkit has been used in multiple recent studies on population-scale social structure, mobility, inequality, migration attitudes, and online-versus-register-based social networks [@bokanyi2026fragmentation; @kazmina2025mobility; @menyhert2025connectivity; @debel2025kinship; @kazmina2024contactthreat; @kazmina2024socioeconomic; @bokanyi2023anatomy]. The population-scale networks containing all family, household, neighbor, work, and school ties of the entire Netherlands between 2009 and 2021 have been made available in the intermediate format directly readable by the `mlnlib` package [@bokanyi2025planetnl].
 
 # Acknowledgements
 
