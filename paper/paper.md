@@ -68,7 +68,7 @@ The library best representing theoretical multilayer network concepts [@kivela20
 
 The gap that `mlnlib` addresses is distinctly different from the strengths of existing tools. While contemporary Python multilayer network libraries focus on analysis, visualization, and algorithmic exploration, they are not designed to efficiently handle the data-engineering challenges posed by population-scale networks with billions of edges, multiple layers, and extensive tabular node attributes, particularly in constrained computing environments where specialized infrastructure is unavailable. The engineering ecosystem struggles with memory-inefficient representations (such as supra-adjacency matrices), slow loading times for large sparse networks, and lack of support for integrating tabular node attributes. `mlnlib` fills this gap by providing a lightweight, portable intermediate representation that combines sparse matrix encoding of multilayer edges with familiar dataframe-based node attribute handling. This design prioritizes efficient data preparation and preprocessing over comprehensive graph algorithms, creating a practical bridge between raw data and established graph analysis libraries in resource-constrained research environments.
 
-# Design and implementation
+# Software design
 
 The core `MultiLayerNetwork` object stores three components:
 
@@ -82,13 +82,17 @@ This representation supports fast extraction of layer-specific adjacency matrice
 
 For data preparation, `RawCSVtoMLN` builds the required node, edge, and layer files from configurable raw CSV inputs, allowing a reproducible setup in data pipelines.
 
-# Use cases and impact
+# Research impact statement
 
 The package was developed in the context of the POPNET/PLANET-NL project, where population-scale register and social data require repeated multilayer slicing and aggregation. In this context, an important requirement is reproducible execution on constrained computing environments, rather than dependence on specialized infrastructure.
 
 By combining sparse encodings for multilayer edges with dataframe-native node attributes, `mlnlib` supports workflows that bridge tabular preprocessing and graph analysis. This is especially useful when researchers need to iterate between node attribute filters and multilayer edge selection before applying downstream methods.
 
 The toolkit has been used in multiple recent studies on population-scale social structure, mobility, inequality, migration attitudes, and online-versus-register-based social networks [@bokanyi2026fragmentation; @kazmina2025mobility; @menyhert2025connectivity; @debel2025kinship; @kazmina2024contactthreat; @kazmina2024socioeconomic; @bokanyi2023anatomy]. The population-scale networks containing all family, household, neighbor, work, and school ties of the entire Netherlands between 2009 and 2021 have been made available in the intermediate format directly readable by the `mlnlib` package [@bokanyi2025planetnl].
+
+# AI usage disclosure
+
+Generative AI assistance was used during software and manuscript preparation. Specifically, GitHub Copilot was used for code documentation generation, general code tidying, and editing/correcting manuscript text. All AI-assisted outputs were reviewed, edited, and validated by the human authors, who made the core design and research decisions.
 
 # Acknowledgements
 
