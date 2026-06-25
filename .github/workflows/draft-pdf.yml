@@ -1,6 +1,10 @@
 name: Draft PDF
 
-on: [push]
+on:
+  push:
+    branches:
+      - paper
+  workflow_dispatch:
 
 jobs:
   paper:
@@ -8,8 +12,10 @@ jobs:
     name: Paper Draft
 
     steps:
-      - name: Checkout
+      - name: Checkout paper branch
         uses: actions/checkout@v4
+        with:
+          ref: paper
 
       - name: Open Journals PDF Generator
         uses: openjournals/openjournals-draft-action@v1.0
@@ -21,4 +27,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: paper
-          path: paper.pdf
+          path: paper/paper.pdf
