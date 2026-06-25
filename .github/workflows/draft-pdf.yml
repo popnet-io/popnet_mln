@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - paper
+    paths:
+      - paper/**
+      - .github/workflows/draft-pdf.yml
   workflow_dispatch:
 
 jobs:
@@ -17,14 +20,15 @@ jobs:
         with:
           ref: paper
 
-      - name: Open Journals PDF Generator
+      - name: Build draft PDF
         uses: openjournals/openjournals-draft-action@v1.0
         with:
           journal: joss
           paper-path: paper/paper.md
 
-      - name: Upload PDF
+      - name: Upload PDF artifact
         uses: actions/upload-artifact@v4
         with:
           name: paper
           path: paper/paper.pdf
+          if-no-files-found: error
